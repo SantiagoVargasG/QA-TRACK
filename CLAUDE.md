@@ -4,15 +4,35 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Estado del repositorio
 
-Este repositorio está **vacío de código**: contiene únicamente el PRD en
-[`docs/PRD-plataforma-seguimiento-qa.md`](docs/PRD-plataforma-seguimiento-qa.md). No hay `package.json`,
-build, linter, tests ni estructura de carpetas todavía. El PRD es la **fuente de verdad** del producto a
-construir — léelo completo antes de generar cualquier código, ya que define arquitectura, modelo de datos,
-API y reglas de negocio con un nivel de detalle que reemplaza la necesidad de este archivo hasta que exista
-implementación real.
+Iteración 0 completada: existe un esqueleto funcional de backend y frontend, sin lógica de dominio
+todavía (eso arranca en la Iteración 1). El PRD en
+[`docs/PRD-plataforma-seguimiento-qa.md`](docs/PRD-plataforma-seguimiento-qa.md) sigue siendo la
+**fuente de verdad** del producto a construir — léelo completo antes de tocar código de dominio.
 
-Cuando se empiece a implementar, esta sección y el resto de CLAUDE.md deben actualizarse con los comandos
-reales (build/lint/test) y la arquitectura tal como quedó construida, no como fue planeada.
+Estructura actual:
+- `backend/` — Node.js + Express + Mongoose. Capas en `src/{routes,controllers,services,models,middleware,config}`;
+  `controllers/`, `services/` y `models/` existen como carpetas vacías, listas para la Iteración 1 (no
+  crear código especulativo dentro de ellas hasta que haya lógica real que lo justifique).
+- `frontend/` — React + Vite + React Router + Tailwind CSS v4 (plugin `@tailwindcss/vite`).
+- `docs/` — PRD del producto.
+
+Comandos para levantar cada parte:
+```
+cd backend && npm install && cp .env.example .env && npm run dev   # http://localhost:4000
+cd frontend && npm install && npm run dev                          # http://localhost:5173 (proxy /api -> backend)
+```
+
+Implementado hasta la Iteración 0 (ver `backend/src/`):
+- Esqueleto Express con manejo de errores consistente (`ApiError`, `notFoundHandler`, `errorHandler` en
+  `middleware/errorHandler.js`) y `GET /api/health`.
+- Conexión a MongoDB (`config/db.js`) que **falla explícitamente** si no logra conectar: `server.js` hace
+  `await connectDB()` antes de `app.listen()`, así que si Mongo no responde el proceso loguea el error y
+  termina con `process.exit(1)` en vez de arrancar el servidor sin base de datos.
+- Frontend con layout base (barra superior + sidebar vacíos) que verifica conectividad contra
+  `/api/health` en tiempo real.
+
+Cuando se implemente lógica de dominio (Iteraciones 1+), esta sección debe seguir actualizándose para
+reflejar el estado real construido, no el planeado.
 
 ## Resumen del producto (ver PRD para el detalle completo)
 
@@ -39,7 +59,7 @@ evidencias, histórico inmutable) y notificaciones salientes vía webhooks (Goog
 | Base de datos | MongoDB, instancia única; multitenancy por `tenantId` en cada documento |
 | Frontend | React + Vite, React Router |
 | Estilos | Tailwind CSS, sin librerías de componentes pesadas |
-| Autenticación | JWT (access token) + bcrypt |
+| Autenticación | JWT (access token) + bcryptjs |
 | Evidencias | Disco local del servidor (`/uploads`), ruta configurable por env var, servidas por Express con validación de acceso por tenant |
 | Webhooks salientes | `fetch` nativo, 2 reintentos, sin cola |
 
