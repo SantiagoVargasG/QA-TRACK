@@ -9,6 +9,7 @@ const proyectoRoutes = require('./routes/proyecto.routes');
 const moduloRoutes = require('./routes/modulo.routes');
 const requerimientoRoutes = require('./routes/requerimiento.routes');
 const historiaRoutes = require('./routes/historia.routes');
+const criterioRoutes = require('./routes/criterio.routes');
 const { notFoundHandler, errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
@@ -24,6 +25,7 @@ app.use('/api', proyectoRoutes);
 app.use('/api', moduloRoutes);
 app.use('/api', requerimientoRoutes);
 app.use('/api', historiaRoutes);
+app.use('/api', criterioRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

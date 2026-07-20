@@ -3,6 +3,7 @@ const Proyecto = require('../models/Proyecto');
 const Modulo = require('../models/Modulo');
 const Requerimiento = require('../models/Requerimiento');
 const Historia = require('../models/Historia');
+const Criterio = require('../models/Criterio');
 const Rol = require('../models/Rol');
 
 // Un usuario fuera del equipo del proyecto (y sin esAdmin) recibe 404, igual que un
@@ -34,6 +35,12 @@ async function verificarCapacidadEnProyecto(proyecto, auth, capacidad) {
   }
 }
 
+// Miembro del equipo (usuarioId, rolId) del usuario autenticado en ESTE proyecto, o null
+// si no es miembro (esAdmin no cuenta como "miembro" para este propósito).
+function obtenerMiembroEquipo(proyecto, auth) {
+  return proyecto.equipo.find((m) => m.usuarioId.toString() === auth.usuarioId) || null;
+}
+
 async function cargarModuloConAcceso(tenantId, moduloId, auth) {
   const modulo = await Modulo.findOne({ _id: moduloId, tenantId, activo: true });
   if (!modulo) throw new ApiError(404, 'Módulo no encontrado');
@@ -58,10 +65,20 @@ async function cargarHistoriaConAcceso(tenantId, historiaId, auth) {
   return { historia, proyecto };
 }
 
+async function cargarCriterioConAcceso(tenantId, criterioId, auth) {
+  const criterio = await Criterio.findOne({ _id: criterioId, tenantId, activo: true });
+  if (!criterio) throw new ApiError(404, 'Criterio no encontrado');
+
+  const proyecto = await cargarProyectoConAcceso(tenantId, criterio.proyectoId, auth);
+  return { criterio, proyecto };
+}
+
 module.exports = {
   cargarProyectoConAcceso,
   verificarCapacidadEnProyecto,
+  obtenerMiembroEquipo,
   cargarModuloConAcceso,
   cargarRequerimientoConAcceso,
   cargarHistoriaConAcceso,
+  cargarCriterioConAcceso,
 };

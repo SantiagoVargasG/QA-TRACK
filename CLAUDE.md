@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Estado del repositorio
 
-Iteraciones 0, 1 y 2 completadas. El PRD en
+Iteraciones 0, 1, 2 y 3 completadas. El PRD en
 [`docs/PRD-plataforma-seguimiento-qa.md`](docs/PRD-plataforma-seguimiento-qa.md) sigue siendo la
 **fuente de verdad** del producto a construir — léelo completo antes de tocar código de dominio.
 
@@ -26,9 +26,10 @@ cd backend && npm test   # node --test contra tests/**/*.test.js
 Cada archivo en `backend/tests/` levanta su propia MongoDB real en memoria (`mongodb-memory-server`) y
 ejercita la app completa vía `supertest` — no hay mocks de la capa de datos. Ver `tests/helpers/entorno.js`
 (arranca/detiene la base en memoria) y `tests/helpers/fixtures.js` (tenant + equipo Dev/QA/Lector +
-forastero, reutilizado por los tests de proyectos/módulos/requerimientos/historias).
+forastero, reutilizado por los tests de proyectos/módulos/requerimientos/historias/criterios). 74 tests en
+9 suites, todos en verde.
 
-Implementado hasta la Iteración 2:
+Implementado hasta la Iteración 3:
 - **Iteración 0:** esqueleto Express con manejo de errores consistente y `GET /api/health`; conexión a
   MongoDB que falla explícitamente si no logra conectar; frontend con layout base.
 - **Iteración 1:** multitenancy, autenticación JWT, roles dinámicos con capacidades, CRUD de
@@ -38,18 +39,24 @@ Implementado hasta la Iteración 2:
   e historias de usuario (con código `HU-N` autogenerado). Todo el árbol de contenido usa borrado lógico
   (`activo: Boolean`) y control de acceso por membresía de equipo + capacidad de rol *dentro del
   proyecto* — ver `services/acceso.service.js` (`cargarProyectoConAcceso`, `verificarCapacidadEnProyecto`,
-  `cargarModuloConAcceso`, `cargarRequerimientoConAcceso`, `cargarHistoriaConAcceso`), el punto de entrada
-  obligatorio para cualquier ruta anidada bajo un proyecto — las cuatro entidades de contenido
-  (proyecto/módulo/requerimiento/historia) siguen el mismo patrón sin excepciones.
+  `cargarModuloConAcceso`, `cargarRequerimientoConAcceso`, `cargarHistoriaConAcceso`,
+  `cargarCriterioConAcceso`), el punto de entrada obligatorio para cualquier ruta anidada bajo un
+  proyecto — las cinco entidades de contenido (proyecto/módulo/requerimiento/historia/criterio) siguen el
+  mismo patrón sin excepciones.
 - Auditoría de Iteración 2 (ver historial de conversación): se detectó y corrigió una condición de carrera
   en el código `HU-N` (dos creaciones concurrentes podían generar el mismo código — ver índice único en
   `models/Historia.js` y el reintento en `crear()` de `services/historia.service.js`), se persistió como
   suite de pruebas (`backend/tests/`) todo lo que hasta entonces se había verificado en arneses temporales
   de auditoría, y se corrigió `historia.service.js` para usar `cargarHistoriaConAcceso` (antes duplicaba
   esa lógica en vez de reutilizar el patrón de `acceso.service.js`).
+- **Iteración 3:** criterios de aceptación (`models/Criterio.js`, `services/criterio.service.js`) con CRUD
+  completo y el **camino feliz** de la máquina de estados (`PENDIENTE → FINALIZADO_DEV → APROBADO`) vía
+  `POST /criterios/:id/check`. El enum de estados se declaró completo desde ahora (incluye `RECHAZADO` y
+  `SOLUCIONADO`) para no migrar el schema en la Iteración 4, pero esas transiciones todavía no tienen
+  acciones que las alcancen. Tests en `backend/tests/criterios.test.js`, mismo patrón que el resto.
 
-Cuando se implemente la Iteración 3+ (criterios de aceptación), esta sección debe seguir actualizándose
-para reflejar el estado real construido, no el planeado.
+Cuando se implemente la Iteración 4+ (rechazo, reportes, histórico), esta sección debe seguir
+actualizándose para reflejar el estado real construido, no el planeado.
 
 ## Resumen del producto (ver PRD para el detalle completo)
 
@@ -141,7 +148,8 @@ Variables de entorno mínimas: `MONGODB_URI`, `JWT_SECRET`, `UPLOADS_PATH`, `POR
   activos del proyecto (ni de más ni de menos) antes de reasignar `orden` secuencialmente. Mismo patrón a
   replicar si otra entidad futura necesita reordenamiento manual.
 - **Máquina de estados del criterio de aceptación** (implementar como enum estricto, toda transición valida
-  capacidad + columna asignada):
+  capacidad + columna asignada). Implementado hasta la Iteración 3: solo el **camino feliz**
+  (`PENDIENTE → FINALIZADO_DEV → APROBADO`); `RECHAZADO`/`SOLUCIONADO` llegan en la Iteración 4:
 
   ```
   PENDIENTE → FINALIZADO_DEV → APROBADO (terminal, camino feliz corto)
@@ -151,6 +159,25 @@ Variables de entorno mínimas: `MONGODB_URI`, `JWT_SECRET`, `UPLOADS_PATH`, `POR
   ```
   El ciclo Solucionado → Re-verificación **solo existe tras un rechazo**; si se aprueba a la primera, el
   criterio se cierra directamente sin pasos intermedios.
+- **`POST /criterios/:id/check` valida en este orden estricto** (`aplicarCheck()` en
+  `services/criterio.service.js`): (1) la columna existe en `proyecto.columnasCheck`, (2) el `tipo` de esa
+  columna corresponde a la `accion` recibida (`finalizado`→`finalizar`, `aprobacion`→`aprobar`/`rechazar`),
+  (3) el usuario tiene el rol asignado a esa columna en el equipo del proyecto (`esAdmin` lo puentea), (4)
+  ese rol tiene la capacidad requerida (`marcar_finalizado`/`aprobar_rechazar`), (5) el `estado` actual del
+  criterio coincide con el estado de origen esperado para esa acción. Cualquier acción nueva (rechazar,
+  solucionar, cerrar_caso, reabrir en Iteración 4) debe sumarse a esta misma cadena de validación, no crear
+  una ruta paralela.
+- **`checks` en el criterio guarda el valor ACTUAL por columna (upsert), no un histórico.** Cada acción
+  reemplaza la entrada existente de esa `columnaNombre` en vez de apilar una nueva. El histórico inmutable
+  real de la sección siguiente es la colección `reportes` (Iteración 4) — no confundir ambos conceptos:
+  `checks` es "estado vigente de cada columna", `reportes` es "línea de tiempo de incidencias".
+- **Nota de deuda conocida (no bloqueante):** el campo `orden` de módulos/requerimientos/historias/
+  criterios se calcula igual que se calculaba `codigo` en historias antes de la Iteración 2 (`findOne().
+  sort()` + 1, sin índice único) — dos creaciones concurrentes del mismo padre podrían calcular el mismo
+  `orden`. A diferencia de `codigo`, una colisión de `orden` no rompe nada (es solo el criterio de
+  ordenamiento visual, recuperable reordenando manualmente), así que no se replicó ahí la protección con
+  índice único + reintento. Si se decide que sí importa, replicar el mismo patrón que `codigo` en
+  `Historia.js`.
 - **Reportes (casos) de rechazo:** un rechazo abre un reporte; rechazos sucesivos sobre el mismo caso
   abierto agregan entradas al histórico del mismo caso (no crean uno nuevo). El caso se cierra
   explícitamente con "cerrar caso" al re-aprobar.
