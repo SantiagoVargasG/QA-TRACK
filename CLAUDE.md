@@ -4,17 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Estado del repositorio
 
-Iteración 0 completada: existe un esqueleto funcional de backend y frontend, sin lógica de dominio
-todavía (eso arranca en la Iteración 1). El PRD en
+Iteraciones 0, 1 y 2 completadas. El PRD en
 [`docs/PRD-plataforma-seguimiento-qa.md`](docs/PRD-plataforma-seguimiento-qa.md) sigue siendo la
 **fuente de verdad** del producto a construir — léelo completo antes de tocar código de dominio.
 
-Estructura actual:
-- `backend/` — Node.js + Express + Mongoose. Capas en `src/{routes,controllers,services,models,middleware,config}`;
-  `controllers/`, `services/` y `models/` existen como carpetas vacías, listas para la Iteración 1 (no
-  crear código especulativo dentro de ellas hasta que haya lógica real que lo justifique).
-- `frontend/` — React + Vite + React Router + Tailwind CSS v4 (plugin `@tailwindcss/vite`).
-- `docs/` — PRD del producto.
+Estructura actual (`backend/src/`): capas `routes/controllers/services/models/middleware/config/utils`,
+todas con contenido real (ya no quedan carpetas vacías). `frontend/src/`: `context/`, `components/`,
+`pages/`, `api/`.
 
 Comandos para levantar cada parte:
 ```
@@ -22,17 +18,38 @@ cd backend && npm install && cp .env.example .env && npm run dev   # http://loca
 cd frontend && npm install && npm run dev                          # http://localhost:5173 (proxy /api -> backend)
 ```
 
-Implementado hasta la Iteración 0 (ver `backend/src/`):
-- Esqueleto Express con manejo de errores consistente (`ApiError`, `notFoundHandler`, `errorHandler` en
-  `middleware/errorHandler.js`) y `GET /api/health`.
-- Conexión a MongoDB (`config/db.js`) que **falla explícitamente** si no logra conectar: `server.js` hace
-  `await connectDB()` antes de `app.listen()`, así que si Mongo no responde el proceso loguea el error y
-  termina con `process.exit(1)` en vez de arrancar el servidor sin base de datos.
-- Frontend con layout base (barra superior + sidebar vacíos) que verifica conectividad contra
-  `/api/health` en tiempo real.
+Pruebas del backend (obligatorias antes de reportar cualquier iteración como completa — ver
+[`docs/checklist-iteracion.md`](docs/checklist-iteracion.md)):
+```
+cd backend && npm test   # node --test contra tests/**/*.test.js
+```
+Cada archivo en `backend/tests/` levanta su propia MongoDB real en memoria (`mongodb-memory-server`) y
+ejercita la app completa vía `supertest` — no hay mocks de la capa de datos. Ver `tests/helpers/entorno.js`
+(arranca/detiene la base en memoria) y `tests/helpers/fixtures.js` (tenant + equipo Dev/QA/Lector +
+forastero, reutilizado por los tests de proyectos/módulos/requerimientos/historias).
 
-Cuando se implemente lógica de dominio (Iteraciones 1+), esta sección debe seguir actualizándose para
-reflejar el estado real construido, no el planeado.
+Implementado hasta la Iteración 2:
+- **Iteración 0:** esqueleto Express con manejo de errores consistente y `GET /api/health`; conexión a
+  MongoDB que falla explícitamente si no logra conectar; frontend con layout base.
+- **Iteración 1:** multitenancy, autenticación JWT, roles dinámicos con capacidades, CRUD de
+  usuarios/roles con control por `esAdmin`. Endurecida con una auditoría de seguridad dirigida (ver
+  sección "Seguridad: patrones obligatorios" más abajo).
+- **Iteración 2:** proyectos (con equipo y columnas de check), módulos (con reordenamiento), requerimientos
+  e historias de usuario (con código `HU-N` autogenerado). Todo el árbol de contenido usa borrado lógico
+  (`activo: Boolean`) y control de acceso por membresía de equipo + capacidad de rol *dentro del
+  proyecto* — ver `services/acceso.service.js` (`cargarProyectoConAcceso`, `verificarCapacidadEnProyecto`,
+  `cargarModuloConAcceso`, `cargarRequerimientoConAcceso`, `cargarHistoriaConAcceso`), el punto de entrada
+  obligatorio para cualquier ruta anidada bajo un proyecto — las cuatro entidades de contenido
+  (proyecto/módulo/requerimiento/historia) siguen el mismo patrón sin excepciones.
+- Auditoría de Iteración 2 (ver historial de conversación): se detectó y corrigió una condición de carrera
+  en el código `HU-N` (dos creaciones concurrentes podían generar el mismo código — ver índice único en
+  `models/Historia.js` y el reintento en `crear()` de `services/historia.service.js`), se persistió como
+  suite de pruebas (`backend/tests/`) todo lo que hasta entonces se había verificado en arneses temporales
+  de auditoría, y se corrigió `historia.service.js` para usar `cargarHistoriaConAcceso` (antes duplicaba
+  esa lógica en vez de reutilizar el patrón de `acceso.service.js`).
+
+Cuando se implemente la Iteración 3+ (criterios de aceptación), esta sección debe seguir actualizándose
+para reflejar el estado real construido, no el planeado.
 
 ## Resumen del producto (ver PRD para el detalle completo)
 
@@ -91,7 +108,38 @@ Variables de entorno mínimas: `MONGODB_URI`, `JWT_SECRET`, `UPLOADS_PATH`, `POR
   "QA" tipo `aprobacion`), cada una asociada a un rol. Un usuario solo puede modificar la columna cuya
   asignación de rol coincide con su rol *en ese proyecto* (un usuario puede tener roles distintos en
   proyectos distintos). Un usuario con `esAdmin: true` puede corregir cualquier columna, pero queda
-  registrado como acción administrativa en el histórico.
+  registrado como acción administrativa en el histórico. Al crear un proyecto, las columnas por defecto
+  ("Desarrollo"→`finalizado`, "QA"→`aprobacion`) se asocian automáticamente a los roles semilla "Dev" y
+  "QA" del tenant si conservan ese nombre; si ya fueron renombrados, la columna queda con `rolId: null`
+  hasta que un admin la reasigne vía `PUT /proyectos/:id/columnas-check`.
+- **`gestionar_contenido` (y cualquier otra capacidad de rol) se resuelve SIEMPRE en el contexto de un
+  proyecto concreto**, nunca de forma global: un usuario tiene el rol que le asignó el equipo (`equipo:
+  [{usuarioId, rolId}]`) de ESE proyecto — el mismo usuario puede tener capacidades distintas en otro
+  proyecto. Ver `verificarCapacidadEnProyecto()` en `services/acceso.service.js`. En cambio, crear/editar/
+  eliminar un proyecto, gestionar su equipo y sus columnas de check son acciones de nivel tenant y
+  requieren `esAdmin: true` (middleware `requireAdmin`), no una capacidad de rol — así se separa
+  "administra el tenant/proyecto" de "participa en el contenido de un proyecto donde es miembro".
+- **Un usuario fuera del equipo de un proyecto (y sin `esAdmin`) recibe 404 en cualquier ruta de ese
+  proyecto o de su contenido** (módulos/requerimientos/historias) — igual que un recurso de otro tenant,
+  no se revela su existencia. `esAdmin` siempre puede ver y operar cualquier proyecto del tenant sin
+  necesidad de estar en su equipo.
+- **Jerarquía de contenido con `proyectoId` denormalizado:** `requerimientos` y `historias` guardan su
+  `proyectoId` además de su padre inmediato (`moduloId`/`requerimientoId`). Es deliberado: evita atravesar
+  la cadena completa (`modulo → proyecto`, `requerimiento → modulo → proyecto`) solo para resolver acceso
+  o contar historias por proyecto — ver el contador de `HU-N` más abajo.
+- **Código `HU-N` de historias es correlativo POR PROYECTO** (no por requerimiento) y **nunca se
+  reutiliza** aunque se borre (soft-delete) una historia: se calcula con
+  `Historia.countDocuments({ tenantId, proyectoId })` **sin** filtrar por `activo`, así el conteo
+  histórico total nunca baja. El conteo y la inserción no son atómicos, así que dos creaciones
+  concurrentes pueden calcular el mismo código: lo resuelve un índice único
+  `{tenantId, proyectoId, codigo}` en `models/Historia.js` que rechaza la segunda inserción con error
+  `11000`, y `crear()` en `services/historia.service.js` reintenta con un conteo fresco (hasta 5 veces)
+  en vez de dejar el error escalar. Cualquier futuro contador correlativo similar debe replicar este
+  patrón, no el de un `countDocuments` + `create` sin protección.
+- **Reordenar módulos** (`PUT /proyectos/:id/modulos/reordenar`) recibe el arreglo completo de ids en el
+  nuevo orden, no un swap puntual — el backend valida que sea exactamente el mismo conjunto de módulos
+  activos del proyecto (ni de más ni de menos) antes de reasignar `orden` secuencialmente. Mismo patrón a
+  replicar si otra entidad futura necesita reordenamiento manual.
 - **Máquina de estados del criterio de aceptación** (implementar como enum estricto, toda transición valida
   capacidad + columna asignada):
 
@@ -120,11 +168,17 @@ Variables de entorno mínimas: `MONGODB_URI`, `JWT_SECRET`, `UPLOADS_PATH`, `POR
   selecciona módulo + HU probadas, resultado exitosa/con-errores, arma automáticamente el resumen de CA
   rechazados en esas HU para el mensaje saliente.
 
-## Seguridad: patrones obligatorios (de la auditoría de Iteración 1)
+## Seguridad: patrones obligatorios (de las auditorías de Iteración 1 y 2)
 
-Estos patrones surgieron de una auditoría de seguridad dirigida sobre la Iteración 1 (multitenancy +
-auth) que encontró y corrigió 3 vulnerabilidades críticas. Son reglas para **toda** iteración futura, no
-solo para lo ya implementado — replicar, no reinventar:
+Estos patrones surgieron de auditorías de seguridad dirigidas. La de Iteración 1 (multitenancy + auth)
+encontró y corrigió 3 vulnerabilidades críticas; la de Iteración 2 encontró una condición de carrera y la
+ausencia total de una suite de pruebas persistida. Son reglas para **toda** iteración futura, no solo para
+lo ya implementado — replicar, no reinventar:
+
+- **Todo contador correlativo calculado con `countDocuments` + `create` en dos pasos está protegido contra
+  condición de carrera** con un índice único compuesto que rechace el duplicado, reintentando ante el
+  error `11000` en vez de dejarlo escalar a un 500. Ver el código `HU-N` más abajo y `crear()` en
+  `services/historia.service.js`.
 
 - **La autenticación nunca confía en el JWT para autorización.** `middleware/auth.middleware.js` vuelve a
   consultar el usuario en BD en cada request (`Usuario.findById(...).select('tenantId esAdmin activo')`)
@@ -154,6 +208,14 @@ solo para lo ya implementado — replicar, no reinventar:
   noción similar de "responsable único" debe replicar este patrón.
 - **Validación de formato y longitud en texto de entrada:** `validarEmail()` y `validarLongitudMax()` de
   `utils/validacion.js`, usadas en registro de tenant y CRUD de usuarios/roles.
+- **Errores de Mongoose que no son `ApiError` se mapean a 400, no al 500 genérico** (`middleware/
+  errorHandler.js`): un `ValidationError` (schema `required`/`maxlength`/`enum` fallido) o un `CastError`
+  (ObjectId malformado en un campo que no pasa por `validarIdParam`, ej. un `rolId` dentro de un array)
+  responden 400 con mensaje sanitizado en vez de un 500 con status incorrecto.
+- **Cualquier arreglo de ids de cliente que se use en un filtro Mongo se valida elemento por elemento**
+  (`stringParaFiltro` en cada iteración), aunque exista una verificación de "mismo conjunto que los ids
+  reales" aguas abajo — no asumir que esa verificación por sí sola es suficiente documentación de la
+  intención; validar el tipo explícitamente igual. Ver `reordenar()` en `services/modulo.service.js`.
 
 ## Modelo de datos (PRD sección 8) y contorno de API (sección 9)
 

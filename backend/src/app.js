@@ -5,6 +5,10 @@ const healthRoutes = require('./routes/health.routes');
 const authRoutes = require('./routes/auth.routes');
 const usuarioRoutes = require('./routes/usuario.routes');
 const rolRoutes = require('./routes/rol.routes');
+const proyectoRoutes = require('./routes/proyecto.routes');
+const moduloRoutes = require('./routes/modulo.routes');
+const requerimientoRoutes = require('./routes/requerimiento.routes');
+const historiaRoutes = require('./routes/historia.routes');
 const { notFoundHandler, errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
@@ -16,6 +20,10 @@ app.use('/api', healthRoutes);
 app.use('/api', authRoutes);
 app.use('/api', usuarioRoutes);
 app.use('/api', rolRoutes);
+app.use('/api', proyectoRoutes);
+app.use('/api', moduloRoutes);
+app.use('/api', requerimientoRoutes);
+app.use('/api', historiaRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
