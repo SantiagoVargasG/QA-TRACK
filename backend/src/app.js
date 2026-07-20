@@ -2,6 +2,9 @@ const express = require('express');
 const cors = require('cors');
 
 const healthRoutes = require('./routes/health.routes');
+const authRoutes = require('./routes/auth.routes');
+const usuarioRoutes = require('./routes/usuario.routes');
+const rolRoutes = require('./routes/rol.routes');
 const { notFoundHandler, errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
@@ -10,6 +13,9 @@ app.use(cors());
 app.use(express.json());
 
 app.use('/api', healthRoutes);
+app.use('/api', authRoutes);
+app.use('/api', usuarioRoutes);
+app.use('/api', rolRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

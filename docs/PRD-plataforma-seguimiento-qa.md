@@ -63,16 +63,17 @@ Los roles NO están predefinidos en código. Cada tenant crea sus roles (ej. "De
 
 | Capacidad | Descripción |
 |---|---|
-| `admin_tenant` | Gestiona usuarios, roles, proyectos, webhooks del tenant |
 | `gestionar_contenido` | Crear/editar módulos, requerimientos, HU y CA |
 | `marcar_finalizado` | Puede marcar checks de tipo "finalizado" |
 | `aprobar_rechazar` | Puede marcar checks de tipo "aprobado/rechazado" y cerrar casos |
 | `solo_lectura` | Ver todo el proyecto sin modificar |
 
-Un rol puede tener varias capacidades. Al crear el tenant se generan como semilla los roles "Administrador", "Dev" (`marcar_finalizado`), "QA" (`aprobar_rechazar`) y "Lector", todos editables.
+Un rol puede tener varias capacidades. Al crear el tenant se generan como semilla los roles "Administrador" (`gestionar_contenido`, `marcar_finalizado`, `aprobar_rechazar`), "Dev" (`marcar_finalizado`), "QA" (`aprobar_rechazar`) y "Lector" (`solo_lectura`), todos editables.
+
+> **Decisión de diseño:** la administración del tenant (gestionar usuarios, roles, proyectos y webhooks) no es una capacidad de rol — se controla con un flag `esAdmin: true` a nivel de usuario, independiente de los roles que ese usuario tenga en cada proyecto. Esto separa "administra el tenant" de "participa en el flujo QA": un usuario puede ser admin del tenant sin pertenecer a ningún equipo de proyecto, y un miembro de un equipo puede tener capacidades de contenido/flujo sin ser admin. La capacidad `admin_tenant` queda reemplazada por este flag en todo el documento.
 
 ### 4.2 Columnas de check asignadas por responsable
-Cada criterio de aceptación tiene **columnas de check** definidas a nivel de proyecto (configuración del proyecto, con valores por defecto: columna "Desarrollo" → tipo `finalizado`, columna "QA" → tipo `aprobacion`). Cada columna se asocia a un rol del tenant. **Regla estricta:** un usuario solo puede modificar la columna cuya asignación de rol coincide con su rol en el proyecto. QA no puede tocar la columna de Dev y viceversa. Los usuarios con `admin_tenant` pueden corregir cualquier columna (registrándolo en el histórico como acción administrativa).
+Cada criterio de aceptación tiene **columnas de check** definidas a nivel de proyecto (configuración del proyecto, con valores por defecto: columna "Desarrollo" → tipo `finalizado`, columna "QA" → tipo `aprobacion`). Cada columna se asocia a un rol del tenant. **Regla estricta:** un usuario solo puede modificar la columna cuya asignación de rol coincide con su rol en el proyecto. QA no puede tocar la columna de Dev y viceversa. Los usuarios con `esAdmin: true` pueden corregir cualquier columna (registrándolo en el histórico como acción administrativa).
 
 ### 4.3 Equipo por proyecto
 - Cada proyecto define su equipo: lista de usuarios del tenant con su rol dentro de ese proyecto (un usuario puede ser Dev en un proyecto y QA en otro).
@@ -139,7 +140,7 @@ FINALIZADO_DEV
 - El camino feliz es corto: `PENDIENTE → FINALIZADO_DEV → APROBADO`. **El ciclo Solucionado → Re-verificación solo existe y se habilita cuando hubo un rechazo.** Si QA aprueba a la primera, el criterio se cierra directamente sin pasos adicionales.
 - Un rechazo crea un **Reporte** (caso). Rechazos sucesivos sobre el mismo caso abierto agregan entradas a su histórico. El caso se cierra explícitamente con la acción "cerrar caso" al re-aprobar.
 - **Histórico inmutable:** todos los reportes, comentarios, evidencias, cambios de estado, con autor y timestamp, se conservan siempre y son consultables desde el CA (aunque el criterio esté aprobado y cerrado).
-- Un CA aprobado puede ser reabierto solo por `admin_tenant` o por un rol con `aprobar_rechazar` (acción "reabrir", registrada en histórico).
+- Un CA aprobado puede ser reabierto solo por un usuario con `esAdmin: true` o por un rol con `aprobar_rechazar` (acción "reabrir", registrada en histórico).
 
 ### Evidencias
 - Imágenes: png, jpg, webp — máx 10 MB por archivo.
@@ -151,7 +152,7 @@ FINALIZADO_DEV
 ## 7. Webhooks (notificaciones a chats)
 
 ### 7.1 Configuración
-- CRUD de webhooks a nivel de proyecto (capacidad `admin_tenant`): nombre, URL destino, proveedor (`google_chat` | `generico`), activo sí/no, y eventos suscritos.
+- CRUD de webhooks a nivel de proyecto (requiere `esAdmin: true`): nombre, URL destino, proveedor (`google_chat` | `generico`), activo sí/no, y eventos suscritos.
 - **Google Chat es el proveedor de primera clase:** formatear el mensaje según el formato de Google Chat (cards/texto). El proveedor `generico` envía un POST JSON plano con el payload estándar para integrar cualquier otro chat o sistema.
 
 ### 7.2 Eventos configurables por webhook

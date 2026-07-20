@@ -1,35 +1,46 @@
-import { useEffect, useState } from 'react';
+import { Route, Routes } from 'react-router-dom';
+import { AuthProvider } from './context/AuthContext';
+import ProtectedRoute from './components/ProtectedRoute';
+import Layout from './components/Layout';
+import RegistroTenantPage from './pages/RegistroTenantPage';
+import LoginPage from './pages/LoginPage';
+import DashboardPage from './pages/DashboardPage';
+import UsuariosPage from './pages/UsuariosPage';
+import RolesPage from './pages/RolesPage';
 
 function App() {
-  const [estadoBackend, setEstadoBackend] = useState('verificando...');
-
-  useEffect(() => {
-    fetch('/api/health')
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.json();
-      })
-      .then((data) => setEstadoBackend(data.status))
-      .catch(() => setEstadoBackend('sin conexión'));
-  }, []);
-
   return (
-    <div className="flex h-screen flex-col">
-      <header className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-3">
-        <span className="font-semibold text-gray-800">Plataforma QA</span>
-        <span className="text-sm text-gray-500">Selector de proyecto</span>
-      </header>
-      <div className="flex flex-1 overflow-hidden">
-        <aside className="w-56 border-r border-gray-200 bg-gray-50 p-4">
-          <p className="text-sm text-gray-400">Módulos del proyecto</p>
-        </aside>
-        <main className="flex-1 overflow-y-auto p-6">
-          <p className="text-gray-700">
-            Estado del backend: <span className="font-mono">{estadoBackend}</span>
-          </p>
-        </main>
-      </div>
-    </div>
+    <AuthProvider>
+      <Routes>
+        <Route path="/registro" element={<RegistroTenantPage />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route
+          element={(
+            <ProtectedRoute>
+              <Layout />
+            </ProtectedRoute>
+          )}
+        >
+          <Route path="/" element={<DashboardPage />} />
+          <Route
+            path="/usuarios"
+            element={(
+              <ProtectedRoute soloAdmin>
+                <UsuariosPage />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="/roles"
+            element={(
+              <ProtectedRoute soloAdmin>
+                <RolesPage />
+              </ProtectedRoute>
+            )}
+          />
+        </Route>
+      </Routes>
+    </AuthProvider>
   );
 }
 
