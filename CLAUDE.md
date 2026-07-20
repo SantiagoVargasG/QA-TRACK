@@ -51,6 +51,17 @@ evidencias, histórico inmutable) y notificaciones salientes vía webhooks (Goog
   en cada endpoint, índices en MongoDB, manejo de errores consistente, configuración por variables de
   entorno.
 
+## Proceso de calidad
+
+- Antes de reportar cualquier iteración como completa, autoverificar contra
+  [`docs/checklist-iteracion.md`](docs/checklist-iteracion.md) y presentar el resultado del checklist
+  junto con la entrega (qué se cumple, qué no aplica y por qué, qué queda pendiente).
+- Todo endpoint nuevo se entrega en la misma iteración con sus asserts de seguridad: aislamiento de
+  tenant, permisos (rol/capacidad correcta e incorrecta, sin token), y validación de tipos de sus campos
+  de entrada.
+- Tras cada auditoría aprobada (comando `/auditar`), los patrones nuevos que haya identificado se agregan
+  al checklist — el checklist crece con cada iteración, nunca queda estático.
+
 ## Stack técnico (PRD sección 2)
 
 | Capa | Tecnología |
