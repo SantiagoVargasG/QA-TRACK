@@ -72,13 +72,24 @@ function Layout() {
                   </Link>
                 ))}
               </nav>
+              <Link to="/reportar-prueba" className="mt-4 block text-xs text-blue-600 hover:underline">
+                Reportar prueba
+              </Link>
               {usuario?.esAdmin && (
-                <Link
-                  to={`/proyectos/${proyectoActual.id}/equipo`}
-                  className="mt-4 block text-xs text-blue-600 hover:underline"
-                >
-                  Configurar equipo
-                </Link>
+                <>
+                  <Link
+                    to={`/proyectos/${proyectoActual.id}/equipo`}
+                    className="mt-1 block text-xs text-blue-600 hover:underline"
+                  >
+                    Configurar equipo
+                  </Link>
+                  <Link
+                    to={`/proyectos/${proyectoActual.id}/webhooks`}
+                    className="mt-1 block text-xs text-blue-600 hover:underline"
+                  >
+                    Webhooks
+                  </Link>
+                </>
               )}
             </>
           )}

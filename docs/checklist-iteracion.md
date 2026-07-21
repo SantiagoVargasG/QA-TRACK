@@ -92,6 +92,17 @@ identificado se agregan aquí antes de cerrarla.
   directo) la página más profunda de la jerarquía, no solo el flujo de clics feliz desde el inicio
   (detectado en la Iteración 4: `ProyectoContext` solo cargaba `proyectos` desde `ProyectosPage`, dejando
   `columnasCheck` vacío en silencio al entrar directo a `/modulos/:id`).
+- [ ] **Toda integración saliente de latencia/fiabilidad impredecible (webhooks, cualquier `fetch` a un
+  sistema externo) se dispara sin `await` desde el flujo que la origina, nunca bloqueando la respuesta al
+  usuario** — incluso cuando esa integración incluye reintentos con espera (que pueden sumar decenas de
+  segundos). La función que la dispara debe capturar sus propios errores internamente (por integración,
+  no solo un catch global) y solo loguear, nunca dejar que un fallo de entrega se propague como error HTTP
+  de la operación que la originó. Ver `notificarEventoCriterio()`/`reportarPrueba()` en
+  `services/webhook.service.js`, llamadas sin `await` desde `criterio.service.js`.
+- [ ] **Toda URL de destino provista por el cliente (ej. la de un webhook) se valida con `new URL()` y se
+  restringe a protocolos esperados (`http`/`https`)** antes de guardarla — un valor no parseable como URL
+  no debe llegar a usarse en un `fetch` posterior sin que el error ya haya sido detectado en la validación
+  de entrada.
 
 ## Calidad
 

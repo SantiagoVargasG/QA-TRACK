@@ -10,6 +10,8 @@ import UsuariosPage from './pages/UsuariosPage';
 import RolesPage from './pages/RolesPage';
 import ProyectosPage from './pages/ProyectosPage';
 import ProyectoEquipoPage from './pages/ProyectoEquipoPage';
+import ProyectoWebhooksPage from './pages/ProyectoWebhooksPage';
+import ReportarPruebaPage from './pages/ReportarPruebaPage';
 import ModuloDetallePage from './pages/ModuloDetallePage';
 
 function App() {
@@ -37,6 +39,15 @@ function App() {
               )}
             />
             <Route path="/modulos/:moduloId" element={<ModuloDetallePage />} />
+            <Route path="/reportar-prueba" element={<ReportarPruebaPage />} />
+            <Route
+              path="/proyectos/:id/webhooks"
+              element={(
+                <ProtectedRoute soloAdmin>
+                  <ProyectoWebhooksPage />
+                </ProtectedRoute>
+              )}
+            />
             <Route
               path="/usuarios"
               element={(

@@ -12,6 +12,7 @@ const historiaRoutes = require('./routes/historia.routes');
 const criterioRoutes = require('./routes/criterio.routes');
 const reporteRoutes = require('./routes/reporte.routes');
 const evidenciaRoutes = require('./routes/evidencia.routes');
+const webhookRoutes = require('./routes/webhook.routes');
 const { notFoundHandler, errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
@@ -30,6 +31,7 @@ app.use('/api', historiaRoutes);
 app.use('/api', criterioRoutes);
 app.use('/api', reporteRoutes);
 app.use('/api', evidenciaRoutes);
+app.use('/api', webhookRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

@@ -10,6 +10,7 @@ const {
   cargarHistoriaConAcceso,
   cargarCriterioConAcceso,
 } = require('./acceso.service');
+const webhookService = require('./webhook.service');
 
 // Máquina de estados completa (PRD sección 6). Cada acción declara: a qué tipo de columna
 // corresponde, qué capacidad requiere, desde qué estado(s) de origen es válida, a qué
@@ -25,6 +26,7 @@ const ACCIONES = {
     valorCheck: 'finalizado',
     entradaTipo: null,
     comentarioRequerido: false,
+    evento: null,
   },
   aprobar: {
     tipoColumna: 'aprobacion',
@@ -34,6 +36,7 @@ const ACCIONES = {
     valorCheck: 'aprobado',
     entradaTipo: null,
     comentarioRequerido: false,
+    evento: 'criterio_aprobado',
   },
   // Rechazar tiene dos orígenes posibles: la primera vez (FINALIZADO_DEV, abre un caso
   // nuevo) o tras un ciclo de solución (SOLUCIONADO, reabre el mismo caso) — ver
@@ -46,6 +49,7 @@ const ACCIONES = {
     valorCheck: 'rechazado',
     entradaTipo: 'rechazo',
     comentarioRequerido: true,
+    evento: 'criterio_rechazado',
   },
   solucionar: {
     tipoColumna: 'finalizado',
@@ -55,6 +59,7 @@ const ACCIONES = {
     valorCheck: 'solucionado',
     entradaTipo: 'solucion',
     comentarioRequerido: false,
+    evento: 'caso_solucionado',
   },
   cerrar_caso: {
     tipoColumna: 'aprobacion',
@@ -64,7 +69,12 @@ const ACCIONES = {
     valorCheck: 'aprobado',
     entradaTipo: 'cierre',
     comentarioRequerido: false,
+    evento: 'caso_cerrado',
   },
+  // Reabrir no tiene un evento propio en el PRD (sección 7.2 lista solo 4 eventos de
+  // criterio + prueba_reportada) — reutiliza criterio_rechazado porque ambas acciones
+  // dejan el criterio en el mismo estado RECHAZADO y el interesado externo (Dev/QA) quiere
+  // la misma notificación: "esto necesita atención de nuevo".
   reabrir: {
     tipoColumna: 'aprobacion',
     capacidad: 'aprobar_rechazar',
@@ -73,6 +83,7 @@ const ACCIONES = {
     valorCheck: 'rechazado',
     entradaTipo: 'reapertura',
     comentarioRequerido: false,
+    evento: 'criterio_rechazado',
   },
 };
 
@@ -268,6 +279,18 @@ async function aplicarCheck(tenantId, criterioId, auth, { columna, accion, comen
       comentario,
       evidencias,
     });
+  }
+
+  // Fire-and-forget: el disparo de webhooks (con sus reintentos, hasta ~30s) nunca debe
+  // bloquear la respuesta al usuario que hizo el check (PRD sección 7.4). notificarEventoCriterio
+  // ya captura sus propios errores por webhook; el .catch acá es solo una red de seguridad
+  // por si el propio armado del contexto (queries a Historia/Modulo/Usuario) fallara.
+  if (config.evento) {
+    webhookService
+      .notificarEventoCriterio(tenantId, proyecto, criterioActualizado, config.evento, { comentario, auth })
+      .catch((err) => {
+        console.error(`[webhooks] no se pudo notificar "${config.evento}" para el criterio ${criterioId}:`, err.message);
+      });
   }
 
   return criterioPublico(criterioActualizado);

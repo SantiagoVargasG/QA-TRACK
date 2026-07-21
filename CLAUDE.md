@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Estado del repositorio
 
-Iteraciones 0, 1, 2, 3 y 4 completadas. El PRD en
+Iteraciones 0, 1, 2, 3, 4 y 5 completadas. El PRD en
 [`docs/PRD-plataforma-seguimiento-qa.md`](docs/PRD-plataforma-seguimiento-qa.md) sigue siendo la
 **fuente de verdad** del producto a construir — léelo completo antes de tocar código de dominio.
 
@@ -26,10 +26,10 @@ cd backend && npm test   # node --test contra tests/**/*.test.js
 Cada archivo en `backend/tests/` levanta su propia MongoDB real en memoria (`mongodb-memory-server`) y
 ejercita la app completa vía `supertest` — no hay mocks de la capa de datos. Ver `tests/helpers/entorno.js`
 (arranca/detiene la base en memoria) y `tests/helpers/fixtures.js` (tenant + equipo Dev/QA/Lector +
-forastero, reutilizado por los tests de proyectos/módulos/requerimientos/historias/criterios/reportes). 88
-tests en 10 suites, todos en verde.
+forastero, reutilizado por los tests de proyectos/módulos/requerimientos/historias/criterios/reportes/
+webhooks). 101 tests en 14 suites, todos en verde.
 
-Implementado hasta la Iteración 4:
+Implementado hasta la Iteración 5:
 - **Iteración 0:** esqueleto Express con manejo de errores consistente y `GET /api/health`; conexión a
   MongoDB que falla explícitamente si no logra conectar; frontend con layout base.
 - **Iteración 1:** multitenancy, autenticación JWT, roles dinámicos con capacidades, CRUD de
@@ -81,8 +81,38 @@ Implementado hasta la Iteración 4:
   request en el caso común de un doble clic accidental. Tests de concurrencia agregados a
   `backend/tests/criterios.test.js` y `backend/tests/reportes.test.js`.
 
-Cuando se implemente la Iteración 5+ (webhooks, reporte manual de pruebas), esta sección debe seguir
-actualizándose para reflejar el estado real construido, no el planeado.
+- **Iteración 5:** webhooks salientes (`models/Webhook.js`, `services/webhook.service.js`) — CRUD a nivel
+  de proyecto (`GET|POST|PUT|DELETE /proyectos/:id/webhooks`, requiere `esAdmin`, mismo patrón que
+  equipo/columnas-check en `proyecto.service.js`: `Proyecto.findOne` directo, no `cargarProyectoConAcceso`,
+  porque `requireAdmin` ya garantiza el nivel de acceso). Disparo desacoplado en
+  `services/webhookDisparo.service.js`: `fetch` nativo con `AbortController` (timeout configurable, default
+  10s), 2 reintentos (default 5s/15s, configurables por `WEBHOOK_TIMEOUT_MS`/`WEBHOOK_REINTENTOS_MS` para
+  acortarlos en tests), formateo dual (`google_chat` → `cardsV2` mínimo, `generico` → el objeto de contexto
+  tal cual, como POST JSON plano). `criterio.service.js#aplicarCheck` dispara el evento correspondiente a
+  cada acción (`aprobar`→`criterio_aprobado`, `rechazar`/`reabrir`→`criterio_rechazado`,
+  `solucionar`→`caso_solucionado`, `cerrar_caso`→`caso_cerrado`; `finalizar` no dispara nada) SIN esperar la
+  entrega (fire-and-forget, ver `notificarEventoCriterio()` en `webhook.service.js`) para no bloquear la
+  respuesta al usuario con los reintentos. `POST /proyectos/:id/reportar-prueba` (capacidad
+  `aprobar_rechazar`, no `esAdmin`) arma el payload estándar de la sección 7.4 del PRD (incluye el resumen
+  automático de CA rechazados por HU con su comentario más reciente) y dispara `prueba_reportada` de la
+  misma forma fire-and-forget, devolviendo de inmediato `webhooksNotificados` (cuántos se encolaron, no
+  cuántos se confirmaron entregados). Frontend: `ProyectoWebhooksPage.jsx` (CRUD, admin) y
+  `ReportarPruebaPage.jsx` (selección de módulo/HU/resultado, visible a cualquier miembro — el backend
+  403-ea si el rol no tiene `aprobar_rechazar`, mismo patrón que el resto de la UI). Tests en
+  `backend/tests/webhooks.test.js`, con un servidor HTTP real levantado en el propio test (no mocks) para
+  verificar la entrega, los reintentos y el formato de payload por proveedor.
+  - **Decisiones tomadas en la Iteración 5** (el PRD no las especifica con precisión suficiente): (1) el
+    PRD solo da el payload exacto de `prueba_reportada` (sección 7.4); para los 4 eventos de criterio se
+    definió un contexto propio y consistente (`evento, proyecto, modulo, historia, criterio, comentario,
+    autor, fecha`) siguiendo el mismo estilo de claves. (2) `reabrir` no tiene evento propio en la sección
+    7.2 del PRD — reutiliza `criterio_rechazado` porque ambas acciones dejan el criterio en el mismo estado
+    y el interesado externo quiere la misma notificación. (3) Eliminar un webhook es borrado físico
+    (`deleteOne`), no soft-delete: a diferencia del árbol de contenido, su configuración no tiene una regla
+    de histórico que preservar, y el campo `activo` ya cubre "deshabilitar sin borrar" — mezclar ambos
+    conceptos haría que un webhook eliminado luciera igual que uno simplemente desactivado.
+
+Cuando se implemente la Iteración 6 (auditoría final, datos semilla, verificación del MVP), esta sección
+debe seguir actualizándose para reflejar el estado real construido, no el planeado.
 
 ## Resumen del producto (ver PRD para el detalle completo)
 
@@ -125,7 +155,10 @@ evidencias, histórico inmutable) y notificaciones salientes vía webhooks (Goog
 | Webhooks salientes | `fetch` nativo, 2 reintentos, sin cola |
 
 Variables de entorno mínimas: `MONGODB_URI`, `JWT_SECRET`, `UPLOADS_PATH`, `PORT`, `MAX_IMAGE_MB=10`,
-`MAX_VIDEO_MB=100`.
+`MAX_VIDEO_MB=100`. Opcionales (no forman parte del contrato mínimo del PRD, tienen default): `WEBHOOK_TIMEOUT_MS`
+(default `10000`) y `WEBHOOK_REINTENTOS_MS` (lista separada por comas, default `5000,15000`) — permiten
+acortar el timeout/reintentos de `webhookDisparo.service.js` en tests sin tocar el comportamiento por
+defecto en producción.
 
 ## Reglas de negocio no obvias (críticas para no romper al implementar)
 
@@ -258,13 +291,22 @@ Variables de entorno mínimas: `MONGODB_URI`, `JWT_SECRET`, `UPLOADS_PATH`, `POR
   `UPLOADS_PATH/<tenantId>/`. `GET /uploads/:archivo` (`services/evidencia.service.js`) resuelve el tenant
   SIEMPRE de `auth.tenantId` (nunca de la URL) y además reverifica que el usuario tenga acceso al proyecto
   dueño del reporte que referencia esa evidencia — no alcanza con que el archivo sea del mismo tenant.
-- **Webhooks:** CRUD a nivel de proyecto (requiere `esAdmin: true`); proveedor `google_chat` (formato
-  cards/texto específico) o `generico` (POST JSON plano, ver payload estándar en PRD sección 7.4). Envío
-  con timeout de 10 s y 2 reintentos (5 s y 15 s de espera), sin bloquear la operación del usuario si falla;
-  registrar resultado en log.
-- **"Reportar prueba"** es una acción manual (no automática) disponible para roles con `aprobar_rechazar`:
-  selecciona módulo + HU probadas, resultado exitosa/con-errores, arma automáticamente el resumen de CA
-  rechazados en esas HU para el mensaje saliente.
+- **Webhooks:** CRUD a nivel de proyecto (requiere `esAdmin: true`, ruta `/proyectos/:id/webhooks`);
+  proveedor `google_chat` (`cardsV2` mínimo: título + campos clave, sin plantillas complejas) o `generico`
+  (POST JSON plano con el contexto tal cual, ver payload estándar en PRD sección 7.4). Envío con timeout de
+  10 s y 2 reintentos (5 s y 15 s de espera) vía `services/webhookDisparo.service.js`, **nunca esperado por
+  el llamador** (fire-and-forget) para no bloquear la operación del usuario si falla; el resultado de cada
+  intento se registra en log (`console.log`/`console.error`), nunca se propaga como error HTTP al usuario.
+  Un webhook `activo: false` o no suscrito al evento disparado simplemente no se notifica (filtrado en la
+  query, no hay envío "fallido" que loguear en ese caso).
+- **"Reportar prueba"** (`POST /proyectos/:id/reportar-prueba`) es una acción manual (no automática)
+  disponible para roles con `aprobar_rechazar` (no `esAdmin`): selecciona módulo + HU probadas (validado
+  que las HU pertenezcan a ese módulo, no solo al proyecto), resultado `exitosa`/`con_errores`, comentario
+  opcional. Arma automáticamente el resumen de CA con estado `RECHAZADO` en esas HU, tomando el comentario
+  de la entrada `rechazo` **más reciente** de cada `Reporte` (no el primero) — ver `reportarPrueba()` en
+  `services/webhook.service.js`. Dispara `prueba_reportada` a los webhooks suscritos del proyecto y
+  devuelve de inmediato el resumen armado más `webhooksNotificados` (cuántos webhooks se encolaron, sin
+  esperar confirmación de entrega — mismo motivo fire-and-forget que el resto de los eventos).
 
 ## Seguridad: patrones obligatorios (de las auditorías de Iteración 1, 2 y 3+4)
 
