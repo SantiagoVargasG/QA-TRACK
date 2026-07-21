@@ -57,6 +57,11 @@ function Layout() {
                 Roles
               </Link>
             )}
+            {usuario?.esAdmin && (
+              <Link to="/auditoria" className="text-gray-700 hover:text-gray-900">
+                Auditoría
+              </Link>
+            )}
           </nav>
 
           {proyectoActual && (

@@ -42,7 +42,9 @@ async function eliminar(req, res, next) {
 
 async function actualizarEquipo(req, res, next) {
   try {
-    res.json(await proyectoService.actualizarEquipo(req.auth.tenantId, req.params.id, req.body));
+    res.json(
+      await proyectoService.actualizarEquipo(req.auth.tenantId, req.params.id, req.body, req.auth.usuarioId),
+    );
   } catch (err) {
     next(err);
   }

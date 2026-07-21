@@ -4,6 +4,7 @@ const Rol = require('../models/Rol');
 const { ApiError } = require('../middleware/errorHandler');
 const { validarLongitudMax, stringParaFiltro } = require('../utils/validacion');
 const { cargarProyectoConAcceso } = require('./acceso.service');
+const auditoriaService = require('./auditoria.service');
 
 const TIPOS_COLUMNA_VALIDOS = ['finalizado', 'aprobacion'];
 
@@ -84,7 +85,7 @@ async function eliminar(tenantId, proyectoId) {
   return proyectoPublico(proyecto);
 }
 
-async function actualizarEquipo(tenantId, proyectoId, { equipo }) {
+async function actualizarEquipo(tenantId, proyectoId, { equipo }, usuarioId) {
   const proyecto = await Proyecto.findOne({ _id: proyectoId, tenantId, activo: true });
   if (!proyecto) throw new ApiError(404, 'Proyecto no encontrado');
 
@@ -119,6 +120,14 @@ async function actualizarEquipo(tenantId, proyectoId, { equipo }) {
 
   proyecto.equipo = equipo.map((m) => ({ usuarioId: m.usuarioId, rolId: m.rolId }));
   await proyecto.save();
+  await auditoriaService.registrar(
+    tenantId,
+    'proyecto',
+    proyecto._id,
+    'equipo_actualizado',
+    usuarioId,
+    `Equipo actualizado (${equipo.length} miembros)`,
+  );
   return proyectoPublico(proyecto);
 }
 

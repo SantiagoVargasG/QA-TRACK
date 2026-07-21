@@ -12,6 +12,7 @@ import ProyectosPage from './pages/ProyectosPage';
 import ProyectoEquipoPage from './pages/ProyectoEquipoPage';
 import ProyectoWebhooksPage from './pages/ProyectoWebhooksPage';
 import ReportarPruebaPage from './pages/ReportarPruebaPage';
+import AuditoriaPage from './pages/AuditoriaPage';
 import ModuloDetallePage from './pages/ModuloDetallePage';
 
 function App() {
@@ -61,6 +62,14 @@ function App() {
               element={(
                 <ProtectedRoute soloAdmin>
                   <RolesPage />
+                </ProtectedRoute>
+              )}
+            />
+            <Route
+              path="/auditoria"
+              element={(
+                <ProtectedRoute soloAdmin>
+                  <AuditoriaPage />
                 </ProtectedRoute>
               )}
             />

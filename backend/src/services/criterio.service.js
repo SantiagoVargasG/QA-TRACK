@@ -11,6 +11,7 @@ const {
   cargarCriterioConAcceso,
 } = require('./acceso.service');
 const webhookService = require('./webhook.service');
+const auditoriaService = require('./auditoria.service');
 
 // Máquina de estados completa (PRD sección 6). Cada acción declara: a qué tipo de columna
 // corresponde, qué capacidad requiere, desde qué estado(s) de origen es válida, a qué
@@ -279,6 +280,31 @@ async function aplicarCheck(tenantId, criterioId, auth, { columna, accion, comen
       comentario,
       evidencias,
     });
+  }
+
+  // eventosAuditoria (PRD sección 8, "opcional simple"): registra específicamente las dos
+  // acciones administrativas que el PRD nombra sobre criterios — un esAdmin corrigiendo una
+  // columna que no le corresponde, y cualquier reapertura (la reapertura se audita siempre,
+  // la corrija o no un esAdmin, porque reabrir un caso ya cerrado es sensible por sí solo).
+  if (porAdmin) {
+    await auditoriaService.registrar(
+      tenantId,
+      'criterio',
+      criterioId,
+      `check_admin:${accion}`,
+      auth.usuarioId,
+      `Columna "${columna}" corregida por un admin sin el rol asignado (acción "${accion}")`,
+    );
+  }
+  if (accion === 'reabrir') {
+    await auditoriaService.registrar(
+      tenantId,
+      'criterio',
+      criterioId,
+      'reabrir',
+      auth.usuarioId,
+      `Criterio reabierto vía columna "${columna}"`,
+    );
   }
 
   // Fire-and-forget: el disparo de webhooks (con sus reintentos, hasta ~30s) nunca debe

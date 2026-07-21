@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Estado del repositorio
 
-Iteraciones 0, 1, 2, 3, 4 y 5 completadas. El PRD en
+Iteraciones 0 a 6 completadas — **MVP completo** según el alcance del PRD (sección 11). El PRD en
 [`docs/PRD-plataforma-seguimiento-qa.md`](docs/PRD-plataforma-seguimiento-qa.md) sigue siendo la
 **fuente de verdad** del producto a construir — léelo completo antes de tocar código de dominio.
 
@@ -27,9 +27,9 @@ Cada archivo en `backend/tests/` levanta su propia MongoDB real en memoria (`mon
 ejercita la app completa vía `supertest` — no hay mocks de la capa de datos. Ver `tests/helpers/entorno.js`
 (arranca/detiene la base en memoria) y `tests/helpers/fixtures.js` (tenant + equipo Dev/QA/Lector +
 forastero, reutilizado por los tests de proyectos/módulos/requerimientos/historias/criterios/reportes/
-webhooks). 101 tests en 14 suites, todos en verde.
+webhooks/auditoría). 107 tests en 15 suites, todos en verde.
 
-Implementado hasta la Iteración 5:
+Implementado hasta la Iteración 6 (MVP completo):
 - **Iteración 0:** esqueleto Express con manejo de errores consistente y `GET /api/health`; conexión a
   MongoDB que falla explícitamente si no logra conectar; frontend con layout base.
 - **Iteración 1:** multitenancy, autenticación JWT, roles dinámicos con capacidades, CRUD de
@@ -111,8 +111,44 @@ Implementado hasta la Iteración 5:
     de histórico que preservar, y el campo `activo` ya cubre "deshabilitar sin borrar" — mezclar ambos
     conceptos haría que un webhook eliminado luciera igual que uno simplemente desactivado.
 
-Cuando se implemente la Iteración 6 (auditoría final, datos semilla, verificación del MVP), esta sección
-debe seguir actualizándose para reflejar el estado real construido, no el planeado.
+- **Iteración 6:** `eventosAuditoria` (`models/EventoAuditoria.js`, `services/auditoria.service.js`,
+  `GET /auditoria`, requiere `esAdmin`) — log de solo-escritura para las acciones administrativas que el
+  PRD nombra explícitamente: (1) un `esAdmin` corrigiendo una columna de criterio sin tener el rol
+  asignado (`check_admin:<accion>`, instrumentado en `aplicarCheck()` junto al flag `porAdmin` ya existente
+  en `reportes`), (2) cualquier `reabrir` de un CA aprobado (se audita siempre, no solo cuando lo hace un
+  admin — reabrir un caso cerrado es sensible en sí mismo), (3) cambios de rol (`rol_creado`/
+  `rol_actualizado`/`rol_eliminado` en `rol.service.js`) y de equipo de proyecto (`equipo_actualizado` en
+  `proyecto.service.js#actualizarEquipo`). Un `registrar()` fallido nunca tumba la operación de negocio que
+  lo originó (mismo principio que el disparo de webhooks, pero acá SÍ se espera con `await` porque es un
+  insert local rápido, no una llamada de red). Frontend: `AuditoriaPage.jsx` (tabla simple, admin). Tests en
+  `backend/tests/auditoria.test.js`.
+  - **Decisión tomada:** `actualizarColumnasCheck` (reasignar qué rol corresponde a cada columna) NO se
+    instrumentó en `eventosAuditoria` — el PRD nombra explícitamente "corrección de columna por admin,
+    reapertura, cambios de roles/equipo" como los tres casos a cubrir, y `actualizarColumnasCheck` es
+    configuración de proyecto, no "cambio de rol" ni "cambio de equipo" en sentido estricto. Se prefirió
+    seguir la lista literal del PRD antes que expandir el alcance por inferencia.
+- **Script de datos semilla** (`backend/src/seed.js`, `npm run seed` en `backend/`): crea un tenant "Demo"
+  (slug `demo`) reutilizando `authService.registrarTenant()` (siembra los roles automáticamente), un admin
+  y dos usuarios (Dev/QA) agregados al equipo de "Proyecto Demo", que tiene 2 módulos con 1 requerimiento,
+  1 HU y 1 CA de ejemplo cada uno. **Idempotente:** si el tenant `demo` ya existe, no hace nada — no hay
+  update-or-create, evita duplicar datos o pisar una demo ya en uso al re-ejecutarlo por error.
+- **Verificación de cierre del MVP** (PRD sección 12, los 8 criterios de aceptación del propio sistema):
+  los ocho están cubiertos por asserts automatizados específicos, re-verificados en verde en esta
+  iteración (`npm test`: 107/107) y varios además confirmados manualmente en navegador real durante esta y
+  iteraciones anteriores (login/UI real, no solo la API):
+  1. Aislamiento cross-tenant — cross-tenant 404 en las 9 suites de recursos (`proyectos`, `modulos`,
+     `requerimientos`, `historias`, `criterios`, `reportes`, `webhooks`, `auditoria`, `usuarios`/`roles`).
+  2. QA no puede tocar la columna Desarrollo y viceversa (403) — `criterios.test.js`.
+  3. Rechazo sin comentario → 400; con comentario → reporte + rojo + dispara `criterio_rechazado` —
+     `reportes.test.js` + `webhooks.test.js`, confirmado en navegador en la Iteración 4/5.
+  4. Aprobar a la primera cierra el CA sin habilitar "solucionado" — `criterios.test.js`.
+  5. "Solucionado" con distintivo ámbar; "cerrar caso" solo `aprobar_rechazar`, deja el CA verde, histórico
+     consultable — `reportes.test.js`, distintivo confirmado en navegador en la Iteración 4.
+  6. Imagen/video que exceden su máximo → 400 con mensaje claro — `reportes.test.js`.
+  7. "Reportar prueba" arma el mensaje con módulo/HU/CA rechazados y dispara `prueba_reportada` (formato
+     `cardsV2` para Google Chat) — `webhooks.test.js`, confirmado con un webhook real en la Iteración 5.
+  8. Un forastero no ve el proyecto en el selector ni accede a sus rutas (404) — `proyectos.test.js`,
+     reconfirmado en navegador real en esta iteración (listado `/proyectos` y acceso directo a la ruta).
 
 ## Resumen del producto (ver PRD para el detalle completo)
 

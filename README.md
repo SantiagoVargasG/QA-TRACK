@@ -1,6 +1,7 @@
 # Plataforma Multitenant de Requerimientos y Seguimiento QA
 
-Ver [`docs/PRD-plataforma-seguimiento-qa.md`](docs/PRD-plataforma-seguimiento-qa.md) para el detalle
+MVP completo (Iteraciones 0 a 6 del plan de implementación). Ver
+[`docs/PRD-plataforma-seguimiento-qa.md`](docs/PRD-plataforma-seguimiento-qa.md) para el detalle
 funcional completo y [`CLAUDE.md`](CLAUDE.md) para las decisiones técnicas tomadas durante la
 implementación.
 
@@ -30,6 +31,27 @@ npm run dev
 
 Arranca en `http://localhost:4000`. Verificar con `GET /api/health`.
 
+### Datos semilla (demo)
+
+Para explorar la plataforma con datos de ejemplo sin cargar nada a mano:
+
+```bash
+cd backend
+npm run seed
+```
+
+Crea un tenant demo (organización/slug: `demo`) con:
+
+| Usuario | Email | Password |
+|---|---|---|
+| Admin | `admin@demo.com` | `demo12345` |
+| Dev | `dev@demo.com` | `demo12345` |
+| QA | `qa@demo.com` | `demo12345` |
+
+... y un "Proyecto Demo" con 2 módulos, cada uno con 1 requerimiento, 1 historia de usuario y 1 criterio
+de aceptación de ejemplo. El script es idempotente: si el tenant `demo` ya existe, no hace nada (borralo
+manualmente de la base si querés datos frescos).
+
 ### Frontend
 
 ```bash
@@ -52,6 +74,8 @@ frontend para desarrollo local.
 | `PORT` | Puerto del backend (default `4000`) |
 | `MAX_IMAGE_MB` | Tamaño máximo de imágenes de evidencia en MB (default `10`) |
 | `MAX_VIDEO_MB` | Tamaño máximo de video de evidencia en MB (default `100`) |
+| `WEBHOOK_TIMEOUT_MS` *(opcional)* | Timeout de cada intento de entrega de webhook en ms (default `10000`) |
+| `WEBHOOK_REINTENTOS_MS` *(opcional)* | Esperas entre reintentos de webhook, separadas por coma (default `5000,15000`) |
 
 ### Nota sobre MongoDB Atlas en Windows
 

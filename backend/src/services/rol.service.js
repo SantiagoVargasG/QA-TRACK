@@ -2,6 +2,7 @@ const Rol = require('../models/Rol');
 const { ApiError } = require('../middleware/errorHandler');
 const CAPACIDADES_VALIDAS = require('../config/capacidades');
 const { validarLongitudMax, stringParaFiltro } = require('../utils/validacion');
+const auditoriaService = require('./auditoria.service');
 
 function rolPublico(rol) {
   return {
@@ -28,7 +29,7 @@ async function listar(tenantId) {
   return roles.map(rolPublico);
 }
 
-async function crear(tenantId, { nombre, capacidades }) {
+async function crear(tenantId, { nombre, capacidades }, usuarioId) {
   if (!nombre) throw new ApiError(400, 'nombre es requerido');
   stringParaFiltro(nombre, 'nombre');
   validarLongitudMax(nombre, 'nombre', 50);
@@ -38,10 +39,11 @@ async function crear(tenantId, { nombre, capacidades }) {
   if (existente) throw new ApiError(400, 'Ya existe un rol con ese nombre');
 
   const rol = await Rol.create({ tenantId, nombre, capacidades: capacidades || [], esSemilla: false });
+  await auditoriaService.registrar(tenantId, 'rol', rol._id, 'rol_creado', usuarioId, `Rol "${rol.nombre}" creado`);
   return rolPublico(rol);
 }
 
-async function actualizar(tenantId, id, { nombre, capacidades }) {
+async function actualizar(tenantId, id, { nombre, capacidades }, usuarioId) {
   const rol = await Rol.findOne({ _id: id, tenantId });
   if (!rol) throw new ApiError(404, 'Rol no encontrado');
 
@@ -54,15 +56,17 @@ async function actualizar(tenantId, id, { nombre, capacidades }) {
   if (capacidades !== undefined) rol.capacidades = capacidades;
 
   await rol.save();
+  await auditoriaService.registrar(tenantId, 'rol', rol._id, 'rol_actualizado', usuarioId, `Rol "${rol.nombre}" actualizado`);
   return rolPublico(rol);
 }
 
-async function eliminar(tenantId, id) {
+async function eliminar(tenantId, id, usuarioId) {
   const rol = await Rol.findOne({ _id: id, tenantId });
   if (!rol) throw new ApiError(404, 'Rol no encontrado');
   if (rol.esSemilla) throw new ApiError(400, 'No se puede eliminar un rol semilla');
 
   await rol.deleteOne();
+  await auditoriaService.registrar(tenantId, 'rol', rol._id, 'rol_eliminado', usuarioId, `Rol "${rol.nombre}" eliminado`);
   return { id };
 }
 

@@ -103,6 +103,16 @@ identificado se agregan aquí antes de cerrarla.
   restringe a protocolos esperados (`http`/`https`)** antes de guardarla — un valor no parseable como URL
   no debe llegar a usarse en un `fetch` posterior sin que el error ya haya sido detectado en la validación
   de entrada.
+- [ ] **Todo registro de auditoría (o cualquier efecto secundario "de constancia", no crítico para el
+  resultado de la operación) se envuelve en su propio try/catch y nunca hace fallar la operación
+  principal que lo originó** — a diferencia de una integración de red (que se dispara sin `await`), un
+  insert local de auditoría sí puede esperarse con `await` (es rápido y no bloquea al usuario de forma
+  perceptible), pero su fallo interno igual debe contenerse y solo loguearse. Ver
+  `services/auditoria.service.js#registrar()`.
+- [ ] **Todo script de datos semilla/demo es idempotente: verifica si sus datos ya existen antes de crear
+  cualquier cosa, y si existen, no hace nada** (nunca un "upsert" parcial que pueda dejar datos
+  duplicados o mezclados de corridas distintas) — re-ejecutarlo por error nunca debe duplicar ni corromper
+  datos existentes. Ver `backend/src/seed.js`.
 
 ## Calidad
 

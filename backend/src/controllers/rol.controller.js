@@ -10,7 +10,7 @@ async function listar(req, res, next) {
 
 async function crear(req, res, next) {
   try {
-    res.status(201).json(await rolService.crear(req.auth.tenantId, req.body));
+    res.status(201).json(await rolService.crear(req.auth.tenantId, req.body, req.auth.usuarioId));
   } catch (err) {
     next(err);
   }
@@ -18,7 +18,7 @@ async function crear(req, res, next) {
 
 async function actualizar(req, res, next) {
   try {
-    res.json(await rolService.actualizar(req.auth.tenantId, req.params.id, req.body));
+    res.json(await rolService.actualizar(req.auth.tenantId, req.params.id, req.body, req.auth.usuarioId));
   } catch (err) {
     next(err);
   }
@@ -26,7 +26,7 @@ async function actualizar(req, res, next) {
 
 async function eliminar(req, res, next) {
   try {
-    res.json(await rolService.eliminar(req.auth.tenantId, req.params.id));
+    res.json(await rolService.eliminar(req.auth.tenantId, req.params.id, req.auth.usuarioId));
   } catch (err) {
     next(err);
   }
