@@ -233,9 +233,14 @@ function CriterioRow({ criterio, columnasCheck, onCambio }) {
   const [error, setError] = useState('');
   const [modalColumna, setModalColumna] = useState(null);
   const [mostrarHistorico, setMostrarHistorico] = useState(false);
+  // El backend ya es seguro ante un doble clic (la transición se reclama atómicamente y la
+  // segunda request concurrente recibe 400), pero deshabilitar el botón mientras hay una
+  // request en vuelo evita mandarla siquiera: mejor UX, un clic de más no debe mostrar error.
+  const [enviando, setEnviando] = useState(false);
 
   async function marcar(columnaNombre, accion) {
     setError('');
+    setEnviando(true);
     try {
       await apiFetch(`/criterios/${criterio.id}/check`, {
         method: 'POST',
@@ -244,6 +249,8 @@ function CriterioRow({ criterio, columnasCheck, onCambio }) {
       onCambio();
     } catch (err) {
       setError(err.message);
+    } finally {
+      setEnviando(false);
     }
   }
 
@@ -281,8 +288,9 @@ function CriterioRow({ criterio, columnasCheck, onCambio }) {
                   <button
                     key={accion}
                     type="button"
+                    disabled={enviando}
                     onClick={() => (modal ? setModalColumna(col.nombre) : marcar(col.nombre, accion))}
-                    className="rounded border border-gray-300 bg-white px-2 py-1 hover:bg-gray-50"
+                    className="rounded border border-gray-300 bg-white px-2 py-1 hover:bg-gray-50 disabled:opacity-50"
                   >
                     {label}
                   </button>

@@ -271,6 +271,28 @@ describe('criterios: CRUD, máquina de estados (camino feliz) y permisos por col
     assert.equal(mismatch.status, 404);
   });
 
+  it('dos "finalizar" concurrentes (doble clic) sobre el mismo criterio PENDIENTE: solo uno transiciona, el otro recibe 400', async () => {
+    const criterioId = await crearCriterio();
+
+    const [a, b] = await Promise.all([
+      request(app)
+        .post(`/api/criterios/${criterioId}/check`)
+        .set('Authorization', `Bearer ${base.tokens.dev}`)
+        .send({ columna: 'Desarrollo', accion: 'finalizar' }),
+      request(app)
+        .post(`/api/criterios/${criterioId}/check`)
+        .set('Authorization', `Bearer ${base.tokens.dev}`)
+        .send({ columna: 'Desarrollo', accion: 'finalizar' }),
+    ]);
+
+    const estados = [a.status, b.status].sort();
+    assert.deepEqual(
+      estados,
+      [200, 400],
+      `exactamente una de las dos requests concurrentes debe transicionar (200) y la otra debe rechazarse (400) — obtuve ${estados}`,
+    );
+  });
+
   it('soft-delete: el criterio eliminado desaparece del listado', async () => {
     const criterioId = await crearCriterio('Para borrar');
     await request(app)

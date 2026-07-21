@@ -62,6 +62,16 @@ identificado se agregan aquí antes de cerrarla.
   `{tenantId, proyectoId, codigo}`), reintentando la operación ante el error `11000` de Mongo en vez de
   dejarlo escalar a un 500 sin controlar. Ver `crear()` en `services/historia.service.js` (detectado en la
   auditoría de Iteración 2: dos requests concurrentes generaban el mismo código).
+- [ ] **Toda transición de estado (o cualquier operación "leer estado → validar → escribir" de dos pasos,
+  no solo contadores) está protegida contra condición de carrera** con `findOneAndUpdate` atómico que
+  incluya el/los estado(s) de origen esperados en el filtro (`{ _id, estado: { $in: origenes } }`) y aplique
+  el nuevo estado en el mismo `$set` — nunca un `Modelo.findOne()` + mutación en memoria + `.save()`
+  condicionado por un `if` previo, que dos requests concurrentes (doble clic, o dos usuarios actuando casi
+  al mismo tiempo) pueden pasar ambas antes de que cualquiera confirme. Si la operación falla (documento no
+  matcheado), responder el mismo error que "transición inválida" — no hace falta distinguir al cliente entre
+  "ya estaba mal" y "alguien más lo cambió justo ahora". Ver `aplicarCheck()` en
+  `services/criterio.service.js` (detectado en la auditoría de Iteración 3+4: dos transiciones concurrentes
+  sobre el mismo criterio —ej. dos "rechazar"— aplicaban ambas, duplicando el `Reporte`).
 - [ ] **Todo id embebido en el *body* de una request (no en la URL) que se use en un filtro de Mongo se
   prueba también con formato no-ObjectId**, no solo con tipo incorrecto (`stringParaFiltro` cubre "no es
   string", pero no "es string pero no es un ObjectId válido") — para confirmar que el `CastError` resultante

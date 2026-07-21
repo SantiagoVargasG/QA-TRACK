@@ -105,6 +105,27 @@ describe('reportes: rechazo, solucionado, cierre, reapertura, evidencias e hist�
     assert.equal(resp.status, 400);
   });
 
+  it('dos "rechazar" concurrentes desde FINALIZADO_DEV: crean un solo Reporte, no dos casos duplicados', async () => {
+    const criterioId = await crearCriterioFinalizado();
+
+    const [a, b] = await Promise.all([
+      rechazar(criterioId, base.tokens.qa, 'Rechazo A'),
+      rechazar(criterioId, base.tokens.qa, 'Rechazo B'),
+    ]);
+    const estados = [a.status, b.status].sort();
+    assert.deepEqual(
+      estados,
+      [200, 400],
+      `exactamente una de las dos requests concurrentes debe rechazar (200) y la otra debe fallar (400) — obtuve ${estados}`,
+    );
+
+    const historico = await request(app)
+      .get(`/api/criterios/${criterioId}/reportes`)
+      .set('Authorization', `Bearer ${base.tokens.admin}`);
+    assert.equal(historico.body.length, 1, 'debe existir un único Reporte (caso) para el criterio, no dos');
+    assert.equal(historico.body[0].entradas.length, 1);
+  });
+
   it('rol equivocado no puede rechazar (Dev), solucionar (QA), cerrar_caso (Dev) ni reabrir (Dev)', async () => {
     const rechazadoPorDev = await (async () => {
       const criterioId = await crearCriterioFinalizado();

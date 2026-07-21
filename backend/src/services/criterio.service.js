@@ -237,12 +237,31 @@ async function aplicarCheck(tenantId, criterioId, auth, { columna, accion, comen
 
   const evidencias = validarYMapearEvidencias(archivos);
 
-  criterio.estado = config.destino;
+  // Reclamo atómico de la transición: el chequeo de origenes de arriba usa `criterio.estado`
+  // tal como se cargó al principio de la función, que puede haber quedado desactualizado si
+  // otra request concurrente (doble clic, o dos usuarios actuando casi al mismo tiempo)
+  // transicionó este mismo criterio en el medio. Un `criterio.save()` sin condición dejaría
+  // "ganar" a ambas requests, aplicando la transición dos veces (y, en acciones que generan
+  // reporte, duplicando el Reporte). findOneAndUpdate con el estado de origen en el filtro es
+  // atómico a nivel de Mongo: como mucho una request matchea y aplica el $set: las demás
+  // encuentran el documento ya en un estado que no matchea `origenes` y reciben null.
+  const criterioActualizado = await Criterio.findOneAndUpdate(
+    { _id: criterioId, tenantId, activo: true, estado: { $in: config.origenes } },
+    { $set: { estado: config.destino } },
+    { new: true },
+  );
+  if (!criterioActualizado) {
+    throw new ApiError(
+      400,
+      `no se puede "${accion}" un criterio en estado ${criterio.estado} (se esperaba ${config.origenes.join(' o ')})`,
+    );
+  }
+
   const entradaCheck = { columnaNombre: columna, valor: config.valorCheck, usuarioId: auth.usuarioId, fecha: new Date() };
-  const idxExistente = criterio.checks.findIndex((c) => c.columnaNombre === columna);
-  if (idxExistente >= 0) criterio.checks[idxExistente] = entradaCheck;
-  else criterio.checks.push(entradaCheck);
-  await criterio.save();
+  const idxExistente = criterioActualizado.checks.findIndex((c) => c.columnaNombre === columna);
+  if (idxExistente >= 0) criterioActualizado.checks[idxExistente] = entradaCheck;
+  else criterioActualizado.checks.push(entradaCheck);
+  await criterioActualizado.save();
 
   if (config.entradaTipo) {
     await registrarEntradaReporte(tenantId, proyecto._id, criterioId, config.entradaTipo, auth, porAdmin, {
@@ -251,7 +270,7 @@ async function aplicarCheck(tenantId, criterioId, auth, { columna, accion, comen
     });
   }
 
-  return criterioPublico(criterio);
+  return criterioPublico(criterioActualizado);
 }
 
 module.exports = { listar, crear, actualizar, eliminar, aplicarCheck };

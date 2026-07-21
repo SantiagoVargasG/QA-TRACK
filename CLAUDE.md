@@ -26,7 +26,7 @@ cd backend && npm test   # node --test contra tests/**/*.test.js
 Cada archivo en `backend/tests/` levanta su propia MongoDB real en memoria (`mongodb-memory-server`) y
 ejercita la app completa vía `supertest` — no hay mocks de la capa de datos. Ver `tests/helpers/entorno.js`
 (arranca/detiene la base en memoria) y `tests/helpers/fixtures.js` (tenant + equipo Dev/QA/Lector +
-forastero, reutilizado por los tests de proyectos/módulos/requerimientos/historias/criterios/reportes). 86
+forastero, reutilizado por los tests de proyectos/módulos/requerimientos/historias/criterios/reportes). 88
 tests en 10 suites, todos en verde.
 
 Implementado hasta la Iteración 4:
@@ -72,6 +72,14 @@ Implementado hasta la Iteración 4:
     y ninguna acción de criterio aparecía. Corregido cargando `proyectos` una vez por sesión autenticada
     (`useEffect` sobre `autenticado` en `ProyectoContext.jsx`) en vez de depender de que el usuario haya
     pasado antes por `ProyectosPage`.
+- Auditoría de Iteración 3+4 (ver historial de conversación): se detectó y corrigió una condición de carrera
+  en `aplicarCheck()` — dos transiciones concurrentes sobre el mismo criterio (doble clic, o dos usuarios
+  actuando casi al mismo tiempo) podían aplicar ambas, duplicando `Reporte`s para un mismo caso. Corregido
+  con un `findOneAndUpdate` atómico que incluye el estado de origen en el filtro (ver "Seguridad: patrones
+  obligatorios" más abajo); el frontend además deshabilita los botones de acción del criterio mientras hay
+  una request en vuelo (`CriterioRow` en `pages/ModuloDetallePage.jsx`) para no mandar siquiera la segunda
+  request en el caso común de un doble clic accidental. Tests de concurrencia agregados a
+  `backend/tests/criterios.test.js` y `backend/tests/reportes.test.js`.
 
 Cuando se implemente la Iteración 5+ (webhooks, reporte manual de pruebas), esta sección debe seguir
 actualizándose para reflejar el estado real construido, no el planeado.
@@ -189,7 +197,9 @@ Variables de entorno mínimas: `MONGODB_URI`, `JWT_SECRET`, `UPLOADS_PATH`, `POR
   (`marcar_finalizado`/`aprobar_rechazar`), (5) el `estado` actual del criterio coincide con alguno de los
   estados de origen válidos para esa acción (`rechazar` tiene DOS orígenes posibles: `FINALIZADO_DEV` la
   primera vez, `SOLUCIONADO` en un ciclo posterior). Cualquier acción futura debe sumarse a esta misma
-  cadena de validación agregando una entrada a `ACCIONES`, no creando una ruta paralela.
+  cadena de validación agregando una entrada a `ACCIONES`, no creando una ruta paralela. El paso (5) se
+  reclama con un `findOneAndUpdate` atómico (`{ estado: { $in: origenes } }` → `$set` del destino), no con
+  un `if` sobre el `criterio` ya cargado en memoria — ver "Seguridad: patrones obligatorios" más abajo.
 - **`checks` en el criterio guarda el valor ACTUAL por columna (upsert), no un histórico.** Cada acción
   reemplaza la entrada existente de esa `columnaNombre` en vez de apilar una nueva (por eso, tras varios
   ciclos de rechazo/solución, el valor mostrado en `checks` puede quedar "desactualizado" respecto a
@@ -256,13 +266,25 @@ Variables de entorno mínimas: `MONGODB_URI`, `JWT_SECRET`, `UPLOADS_PATH`, `POR
   selecciona módulo + HU probadas, resultado exitosa/con-errores, arma automáticamente el resumen de CA
   rechazados en esas HU para el mensaje saliente.
 
-## Seguridad: patrones obligatorios (de las auditorías de Iteración 1 y 2)
+## Seguridad: patrones obligatorios (de las auditorías de Iteración 1, 2 y 3+4)
 
 Estos patrones surgieron de auditorías de seguridad dirigidas. La de Iteración 1 (multitenancy + auth)
 encontró y corrigió 3 vulnerabilidades críticas; la de Iteración 2 encontró una condición de carrera y la
-ausencia total de una suite de pruebas persistida. Son reglas para **toda** iteración futura, no solo para
-lo ya implementado — replicar, no reinventar:
+ausencia total de una suite de pruebas persistida; la de Iteración 3+4 encontró una condición de carrera en
+las transiciones de estado del criterio. Son reglas para **toda** iteración futura, no solo para lo ya
+implementado — replicar, no reinventar:
 
+- **Toda transición de estado (no solo contadores) se reclama con un `findOneAndUpdate` atómico que incluye
+  el/los estado(s) de origen esperados en el filtro** (`{ _id, estado: { $in: origenes } }` → `$set` del
+  destino), nunca con un `Modelo.findOne()` + mutación en memoria + `.save()` condicionado por un `if`
+  previo — dos requests concurrentes (doble clic, o dos usuarios actuando casi al mismo tiempo) pueden
+  pasar ambas ese `if` antes de que cualquiera confirme, aplicando la transición dos veces. Si el
+  `findOneAndUpdate` no matchea ningún documento, tratarlo igual que "transición inválida" (mismo status y
+  mensaje que el resto de los rechazos de esa validación) — no hace falta un código distinto para
+  distinguir "ya estaba mal" de "alguien más lo cambió justo ahora". En el frontend, además, deshabilitar
+  el control mientras la request está en vuelo evita mandar la segunda request en el caso común de un
+  doble clic accidental — defensa en profundidad, no un sustituto del atomic claim del backend. Ver
+  `aplicarCheck()` en `services/criterio.service.js` y `CriterioRow` en `pages/ModuloDetallePage.jsx`.
 - **Todo contador correlativo calculado con `countDocuments` + `create` en dos pasos está protegido contra
   condición de carrera** con un índice único compuesto que rechace el duplicado, reintentando ante el
   error `11000` en vez de dejarlo escalar a un 500. Ver el código `HU-N` más abajo y `crear()` en
