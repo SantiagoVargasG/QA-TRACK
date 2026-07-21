@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { apiFetch } from '../api/client';
+import { apiFetch, apiFetchBlob } from '../api/client';
 import { useProyecto } from '../context/ProyectoContext';
 
 const ESTADO_COLOR = {
@@ -11,8 +11,190 @@ const ESTADO_COLOR = {
   SOLUCIONADO: 'border-amber-200 bg-amber-50',
 };
 
-const ACCION_POR_TIPO = { finalizado: 'finalizar', aprobacion: 'aprobar' };
-const ESTADO_ORIGEN_POR_ACCION = { finalizar: 'PENDIENTE', aprobar: 'FINALIZADO_DEV' };
+// Acciones habilitadas por estado actual del criterio y tipo de columna (espejo de
+// ACCIONES/ACCIONES_POR_TIPO_COLUMNA en backend/src/services/criterio.service.js). El
+// backend es quien valida rol/capacidad de verdad; esto solo decide qué botón mostrar.
+const ACCIONES_DISPONIBLES = {
+  PENDIENTE: { finalizado: [{ accion: 'finalizar', label: 'Marcar finalizado' }] },
+  FINALIZADO_DEV: {
+    aprobacion: [
+      { accion: 'aprobar', label: 'Aprobar' },
+      { accion: 'rechazar', label: 'Rechazar', modal: true },
+    ],
+  },
+  RECHAZADO: { finalizado: [{ accion: 'solucionar', label: 'Marcar solucionado' }] },
+  SOLUCIONADO: {
+    aprobacion: [
+      { accion: 'cerrar_caso', label: 'Cerrar caso' },
+      { accion: 'rechazar', label: 'Rechazar', modal: true },
+    ],
+  },
+  APROBADO: { aprobacion: [{ accion: 'reabrir', label: 'Reabrir' }] },
+};
+
+const ENTRADA_LABEL = {
+  rechazo: 'Rechazado',
+  solucion: 'Marcado como solucionado',
+  reapertura: 'Reabierto',
+  cierre: 'Caso cerrado',
+};
+
+function RechazarModal({ criterioId, columna, onClose, onRechazado }) {
+  const [comentario, setComentario] = useState('');
+  const [archivos, setArchivos] = useState([]);
+  const [error, setError] = useState('');
+  const [enviando, setEnviando] = useState(false);
+
+  async function onSubmit(e) {
+    e.preventDefault();
+    setError('');
+    setEnviando(true);
+    try {
+      const formData = new FormData();
+      formData.append('columna', columna);
+      formData.append('accion', 'rechazar');
+      formData.append('comentario', comentario);
+      for (const archivo of archivos) formData.append('evidencias', archivo);
+      await apiFetch(`/criterios/${criterioId}/check`, { method: 'POST', body: formData });
+      onRechazado();
+      onClose();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-md rounded-lg bg-white p-4 shadow-lg">
+        <h3 className="text-sm font-semibold text-gray-800">Rechazar criterio — columna {columna}</h3>
+        <form onSubmit={onSubmit} className="mt-3 space-y-3">
+          <textarea
+            className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+            placeholder="Comentario (obligatorio)"
+            value={comentario}
+            onChange={(e) => setComentario(e.target.value)}
+            rows={3}
+            required
+          />
+          <input
+            type="file"
+            multiple
+            accept="image/png,image/jpeg,image/webp,video/mp4,video/webm"
+            onChange={(e) => setArchivos(Array.from(e.target.files))}
+            className="block w-full text-xs text-gray-500"
+          />
+          {error && <p className="text-xs text-red-700">{error}</p>}
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded border border-gray-300 px-3 py-1 text-sm hover:bg-gray-50"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={enviando}
+              className="rounded bg-red-600 px-3 py-1 text-sm text-white hover:bg-red-700 disabled:opacity-50"
+            >
+              {enviando ? 'Rechazando...' : 'Rechazar'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function EvidenciaPreview({ evidencia }) {
+  const [url, setUrl] = useState(null);
+  const [error, setError] = useState('');
+  const esImagen = evidencia.tipoMime.startsWith('image/');
+
+  useEffect(() => {
+    let objectUrl;
+    let cancelado = false;
+    apiFetchBlob(`/uploads/${evidencia.archivo}`)
+      .then((blob) => {
+        if (cancelado) return;
+        objectUrl = URL.createObjectURL(blob);
+        setUrl(objectUrl);
+      })
+      .catch((err) => setError(err.message));
+    return () => {
+      cancelado = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [evidencia.archivo]);
+
+  if (error) return <p className="text-xs text-red-600">No se pudo cargar la evidencia</p>;
+  if (!url) return <p className="text-xs text-gray-400">Cargando evidencia...</p>;
+
+  return esImagen ? (
+    <img src={url} alt="Evidencia adjunta" className="mt-1 max-h-40 rounded border border-gray-200" />
+  ) : (
+    <video src={url} controls className="mt-1 max-h-40 rounded border border-gray-200" />
+  );
+}
+
+function HistoricoDrawer({ criterioId, onClose }) {
+  const [reportes, setReportes] = useState([]);
+  const [error, setError] = useState('');
+  const [cargando, setCargando] = useState(true);
+
+  useEffect(() => {
+    apiFetch(`/criterios/${criterioId}/reportes`)
+      .then(setReportes)
+      .catch((err) => setError(err.message))
+      .finally(() => setCargando(false));
+  }, [criterioId]);
+
+  return (
+    <div className="fixed inset-0 z-40 flex justify-end bg-black/30">
+      <div className="h-full w-full max-w-md overflow-y-auto bg-white p-4 shadow-xl">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-gray-800">Histórico del criterio</h3>
+          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            ✕
+          </button>
+        </div>
+        {cargando && <p className="mt-3 text-sm text-gray-400">Cargando...</p>}
+        {error && <p className="mt-3 text-sm text-red-700">{error}</p>}
+        {!cargando && reportes.length === 0 && (
+          <p className="mt-3 text-sm text-gray-400">Sin reportes todavía.</p>
+        )}
+        <div className="mt-3 space-y-4">
+          {reportes.map((reporte) => (
+            <div key={reporte.id} className="rounded border border-gray-200 p-3">
+              <p className="text-xs font-medium text-gray-500">
+                Caso {reporte.estadoCaso} — {new Date(reporte.createdAt).toLocaleString()}
+              </p>
+              <ul className="mt-2 space-y-3">
+                {reporte.entradas.map((entrada, idx) => (
+                  <li key={idx} className="border-l-2 border-gray-200 pl-3 text-sm">
+                    <p className="font-medium text-gray-700">
+                      {ENTRADA_LABEL[entrada.tipo] || entrada.tipo}
+                      {entrada.porAdmin && (
+                        <span className="ml-2 text-xs font-normal text-amber-600">(acción administrativa)</span>
+                      )}
+                    </p>
+                    <p className="text-xs text-gray-400">{new Date(entrada.fecha).toLocaleString()}</p>
+                    {entrada.comentario && <p className="mt-1 text-gray-600">{entrada.comentario}</p>}
+                    {entrada.evidencias?.map((ev) => (
+                      <EvidenciaPreview key={ev.archivo} evidencia={ev} />
+                    ))}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function NuevoCriterioForm({ historiaId, onCreado }) {
   const [texto, setTexto] = useState('');
@@ -49,6 +231,8 @@ function NuevoCriterioForm({ historiaId, onCreado }) {
 
 function CriterioRow({ criterio, columnasCheck, onCambio }) {
   const [error, setError] = useState('');
+  const [modalColumna, setModalColumna] = useState(null);
+  const [mostrarHistorico, setMostrarHistorico] = useState(false);
 
   async function marcar(columnaNombre, accion) {
     setError('');
@@ -67,32 +251,59 @@ function CriterioRow({ criterio, columnasCheck, onCambio }) {
     <div className={`rounded border p-3 ${ESTADO_COLOR[criterio.estado] || 'border-gray-200'}`}>
       <div className="flex items-center justify-between">
         <p className="text-sm text-gray-800">{criterio.texto}</p>
-        <span className="text-xs font-medium text-gray-500">{criterio.estado}</span>
+        <div className="flex items-center gap-2">
+          {criterio.estado === 'SOLUCIONADO' && (
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+              Corrección realizada
+            </span>
+          )}
+          <span className="text-xs font-medium text-gray-500">{criterio.estado}</span>
+          <button
+            type="button"
+            onClick={() => setMostrarHistorico(true)}
+            className="text-xs text-gray-400 underline hover:text-gray-600"
+          >
+            Histórico
+          </button>
+        </div>
       </div>
       {error && <p className="mt-1 text-xs text-red-700">{error}</p>}
-      <div className="mt-2 flex gap-4">
+      <div className="mt-2 flex flex-wrap gap-4">
         {columnasCheck.map((col) => {
           const check = criterio.checks.find((c) => c.columnaNombre === col.nombre);
-          const accion = ACCION_POR_TIPO[col.tipo];
-          const puedeAccionar = !check && criterio.estado === ESTADO_ORIGEN_POR_ACCION[accion];
+          const acciones = ACCIONES_DISPONIBLES[criterio.estado]?.[col.tipo] || [];
           return (
             <div key={col.nombre} className="text-xs">
               <div className="font-medium text-gray-500">{col.nombre}</div>
-              {check && <span className="text-gray-700">{check.valor}</span>}
-              {!check && puedeAccionar && (
-                <button
-                  type="button"
-                  onClick={() => marcar(col.nombre, accion)}
-                  className="rounded border border-gray-300 bg-white px-2 py-1 hover:bg-gray-50"
-                >
-                  {accion === 'finalizar' ? 'Marcar finalizado' : 'Aprobar'}
-                </button>
-              )}
-              {!check && !puedeAccionar && <span className="text-gray-300">—</span>}
+              {check && <div className="text-gray-700">{check.valor}</div>}
+              <div className="mt-1 flex gap-1">
+                {acciones.map(({ accion, label, modal }) => (
+                  <button
+                    key={accion}
+                    type="button"
+                    onClick={() => (modal ? setModalColumna(col.nombre) : marcar(col.nombre, accion))}
+                    className="rounded border border-gray-300 bg-white px-2 py-1 hover:bg-gray-50"
+                  >
+                    {label}
+                  </button>
+                ))}
+                {acciones.length === 0 && !check && <span className="text-gray-300">—</span>}
+              </div>
             </div>
           );
         })}
       </div>
+      {modalColumna && (
+        <RechazarModal
+          criterioId={criterio.id}
+          columna={modalColumna}
+          onClose={() => setModalColumna(null)}
+          onRechazado={onCambio}
+        />
+      )}
+      {mostrarHistorico && (
+        <HistoricoDrawer criterioId={criterio.id} onClose={() => setMostrarHistorico(false)} />
+      )}
     </div>
   );
 }

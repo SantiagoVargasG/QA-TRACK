@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Estado del repositorio
 
-Iteraciones 0, 1, 2 y 3 completadas. El PRD en
+Iteraciones 0, 1, 2, 3 y 4 completadas. El PRD en
 [`docs/PRD-plataforma-seguimiento-qa.md`](docs/PRD-plataforma-seguimiento-qa.md) sigue siendo la
 **fuente de verdad** del producto a construir — léelo completo antes de tocar código de dominio.
 
@@ -26,10 +26,10 @@ cd backend && npm test   # node --test contra tests/**/*.test.js
 Cada archivo en `backend/tests/` levanta su propia MongoDB real en memoria (`mongodb-memory-server`) y
 ejercita la app completa vía `supertest` — no hay mocks de la capa de datos. Ver `tests/helpers/entorno.js`
 (arranca/detiene la base en memoria) y `tests/helpers/fixtures.js` (tenant + equipo Dev/QA/Lector +
-forastero, reutilizado por los tests de proyectos/módulos/requerimientos/historias/criterios). 74 tests en
-9 suites, todos en verde.
+forastero, reutilizado por los tests de proyectos/módulos/requerimientos/historias/criterios/reportes). 86
+tests en 10 suites, todos en verde.
 
-Implementado hasta la Iteración 3:
+Implementado hasta la Iteración 4:
 - **Iteración 0:** esqueleto Express con manejo de errores consistente y `GET /api/health`; conexión a
   MongoDB que falla explícitamente si no logra conectar; frontend con layout base.
 - **Iteración 1:** multitenancy, autenticación JWT, roles dinámicos con capacidades, CRUD de
@@ -54,8 +54,26 @@ Implementado hasta la Iteración 3:
   `POST /criterios/:id/check`. El enum de estados se declaró completo desde ahora (incluye `RECHAZADO` y
   `SOLUCIONADO`) para no migrar el schema en la Iteración 4, pero esas transiciones todavía no tienen
   acciones que las alcancen. Tests en `backend/tests/criterios.test.js`, mismo patrón que el resto.
+- **Iteración 4:** ciclo completo de la máquina de estados — `rechazar` (comentario obligatorio, evidencia
+  opcional), `solucionar`, `cerrar_caso` y `reabrir` se suman a `finalizar`/`aprobar` en la misma cadena de
+  validación de `aplicarCheck()` (`services/criterio.service.js`). Modelo `reportes` nuevo
+  (`models/Reporte.js`) con histórico inmutable por caso — ver `services/reporte.service.js` (`GET
+  /criterios/:id/reportes`) y la sección de reglas de negocio más abajo para el ciclo de vida completo del
+  caso. Evidencias (imagen/video) vía `multer` (`middleware/upload.middleware.js`) con validación de
+  tipo MIME y tamaño por archivo en `utils/evidencias.js`, servidas de vuelta con `GET /uploads/:archivo`
+  (`services/evidencia.service.js`) verificando tenant y membresía del proyecto dueño del reporte, nunca
+  solo el nombre de archivo. Frontend: modal de rechazo (comentario + carga de evidencias) y drawer lateral
+  de histórico con preview de imágenes/video (`pages/ModuloDetallePage.jsx`) — las evidencias se cargan vía
+  `apiFetchBlob()` (`api/client.js`) en vez de `<img src>` directo porque un `<img>` no puede mandar el
+  header `Authorization`. Tests en `backend/tests/reportes.test.js`, mismo patrón que el resto.
+  - Corrección incidental (no parte del alcance de la Iteración 4, encontrada al verificar la UI en
+    navegador real): `ProyectoContext` solo cargaba `proyectos` al visitar `/proyectos`; una recarga de
+    página o un link directo a `/modulos/:id` dejaba `columnasCheck` vacío en silencio (sin error visible)
+    y ninguna acción de criterio aparecía. Corregido cargando `proyectos` una vez por sesión autenticada
+    (`useEffect` sobre `autenticado` en `ProyectoContext.jsx`) en vez de depender de que el usuario haya
+    pasado antes por `ProyectosPage`.
 
-Cuando se implemente la Iteración 4+ (rechazo, reportes, histórico), esta sección debe seguir
+Cuando se implemente la Iteración 5+ (webhooks, reporte manual de pruebas), esta sección debe seguir
 actualizándose para reflejar el estado real construido, no el planeado.
 
 ## Resumen del producto (ver PRD para el detalle completo)
@@ -147,30 +165,59 @@ Variables de entorno mínimas: `MONGODB_URI`, `JWT_SECRET`, `UPLOADS_PATH`, `POR
   nuevo orden, no un swap puntual — el backend valida que sea exactamente el mismo conjunto de módulos
   activos del proyecto (ni de más ni de menos) antes de reasignar `orden` secuencialmente. Mismo patrón a
   replicar si otra entidad futura necesita reordenamiento manual.
-- **Máquina de estados del criterio de aceptación** (implementar como enum estricto, toda transición valida
-  capacidad + columna asignada). Implementado hasta la Iteración 3: solo el **camino feliz**
-  (`PENDIENTE → FINALIZADO_DEV → APROBADO`); `RECHAZADO`/`SOLUCIONADO` llegan en la Iteración 4:
+- **Máquina de estados del criterio de aceptación** (enum estricto, toda transición valida capacidad +
+  columna asignada). Completa desde la Iteración 4:
 
   ```
   PENDIENTE → FINALIZADO_DEV → APROBADO (terminal, camino feliz corto)
                              └→ RECHAZADO (requiere comentario, evidencia opcional)
                                   → SOLUCIONADO → (re-verificación) → cierra caso → APROBADO
                                                                     └→ RECHAZADO (nuevo ciclo)
+  APROBADO → (reabrir, solo esAdmin o aprobar_rechazar) → RECHAZADO (nuevo caso)
   ```
   El ciclo Solucionado → Re-verificación **solo existe tras un rechazo**; si se aprueba a la primera, el
-  criterio se cierra directamente sin pasos intermedios.
+  criterio se cierra directamente sin pasos intermedios. Todas las acciones y sus estados origen/destino
+  están declaradas en el objeto `ACCIONES` de `services/criterio.service.js` (`finalizar`, `aprobar`,
+  `rechazar`, `solucionar`, `cerrar_caso`, `reabrir`), junto con `ACCIONES_POR_TIPO_COLUMNA` (derivado del
+  mismo objeto, no duplicado a mano).
 - **`POST /criterios/:id/check` valida en este orden estricto** (`aplicarCheck()` en
   `services/criterio.service.js`): (1) la columna existe en `proyecto.columnasCheck`, (2) el `tipo` de esa
-  columna corresponde a la `accion` recibida (`finalizado`→`finalizar`, `aprobacion`→`aprobar`/`rechazar`),
-  (3) el usuario tiene el rol asignado a esa columna en el equipo del proyecto (`esAdmin` lo puentea), (4)
-  ese rol tiene la capacidad requerida (`marcar_finalizado`/`aprobar_rechazar`), (5) el `estado` actual del
-  criterio coincide con el estado de origen esperado para esa acción. Cualquier acción nueva (rechazar,
-  solucionar, cerrar_caso, reabrir en Iteración 4) debe sumarse a esta misma cadena de validación, no crear
-  una ruta paralela.
+  columna corresponde a la `accion` recibida — columna `finalizado` habilita `finalizar`/`solucionar`,
+  columna `aprobacion` habilita `aprobar`/`rechazar`/`cerrar_caso`/`reabrir` —, (3) el usuario tiene el rol
+  asignado a esa columna en el equipo del proyecto (`esAdmin` lo puentea, pero queda marcado `porAdmin:
+  true` en la entrada de reporte que genere esa acción), (4) ese rol tiene la capacidad requerida
+  (`marcar_finalizado`/`aprobar_rechazar`), (5) el `estado` actual del criterio coincide con alguno de los
+  estados de origen válidos para esa acción (`rechazar` tiene DOS orígenes posibles: `FINALIZADO_DEV` la
+  primera vez, `SOLUCIONADO` en un ciclo posterior). Cualquier acción futura debe sumarse a esta misma
+  cadena de validación agregando una entrada a `ACCIONES`, no creando una ruta paralela.
 - **`checks` en el criterio guarda el valor ACTUAL por columna (upsert), no un histórico.** Cada acción
-  reemplaza la entrada existente de esa `columnaNombre` en vez de apilar una nueva. El histórico inmutable
-  real de la sección siguiente es la colección `reportes` (Iteración 4) — no confundir ambos conceptos:
-  `checks` es "estado vigente de cada columna", `reportes` es "línea de tiempo de incidencias".
+  reemplaza la entrada existente de esa `columnaNombre` en vez de apilar una nueva (por eso, tras varios
+  ciclos de rechazo/solución, el valor mostrado en `checks` puede quedar "desactualizado" respecto a
+  acciones intermedias — es intencional, refleja solo el último toque de esa columna). El histórico
+  inmutable real es la colección `reportes` — no confundir ambos conceptos: `checks` es "estado vigente de
+  cada columna", `reportes` es "línea de tiempo de incidencias".
+- **Decisiones tomadas en la Iteración 4 para resolver ambigüedades del PRD** (la sección 6 del PRD no
+  especifica estos detalles con precisión suficiente para implementar sin definirlos):
+  - El PRD declara `entradas[].tipo` con un valor `admin` además de `rechazo|solucion|reapertura|cierre`,
+    pero no especifica qué acción generaría una entrada de tipo `admin` por sí sola (`finalizar`/`aprobar`
+    — el camino feliz — nunca generan una entrada de reporte, así que no hay dónde adjuntarla). En vez de
+    inventar un caso de uso para un quinto tipo de entrada, se optó por un campo `porAdmin: Boolean` en la
+    MISMA entrada (`rechazo`/`solucion`/`reapertura`/`cierre`) que ya se genera para esa acción, marcado
+    `true` cuando quien la ejecuta es `esAdmin` puenteando el rol asignado a la columna. Esto cubre la
+    regla del PRD ("corregir cualquier columna... registrándolo en el histórico como acción
+    administrativa") sin forzar un reporte nuevo para acciones que hoy no lo generan. Si en el futuro se
+    necesita auditar también los bypass de `finalizar`/`aprobar`, ese es el caso de uso natural para
+    `eventosAuditoria` (Iteración 6), pensado como log genérico multi-entidad — no para sobrecargar
+    `reportes`.
+  - El PRD no especifica a qué estado destino lleva `reabrir` ni si genera un reporte nuevo o continúa el
+    anterior. Se definió: `reabrir` solo aplica sobre un criterio `APROBADO`, lo lleva a `RECHAZADO`, y
+    **siempre crea un Reporte nuevo** (el caso anterior, si existe, ya está `cerrado` — no se reabre el
+    mismo documento) con una única entrada `reapertura`. A partir de ahí sigue el ciclo normal
+    (`solucionar` → `cerrar_caso`).
+  - `comentario` es **obligatorio solo para `rechazar`** (única acción que el PRD marca explícitamente
+    como "OBLIGA comentario"); `solucionar`, `cerrar_caso` y `reabrir` lo aceptan pero no lo exigen.
+    Evidencias son opcionales en las cuatro acciones que generan reporte (el PRD solo las menciona para
+    rechazo, pero no hay razón funcional para prohibirlas en las demás).
 - **Nota de deuda conocida (no bloqueante):** el campo `orden` de módulos/requerimientos/historias/
   criterios se calcula igual que se calculaba `codigo` en historias antes de la Iteración 2 (`findOne().
   sort()` + 1, sin índice único) — dos creaciones concurrentes del mismo padre podrían calcular el mismo
@@ -178,15 +225,29 @@ Variables de entorno mínimas: `MONGODB_URI`, `JWT_SECRET`, `UPLOADS_PATH`, `POR
   ordenamiento visual, recuperable reordenando manualmente), así que no se replicó ahí la protección con
   índice único + reintento. Si se decide que sí importa, replicar el mismo patrón que `codigo` en
   `Historia.js`.
-- **Reportes (casos) de rechazo:** un rechazo abre un reporte; rechazos sucesivos sobre el mismo caso
-  abierto agregan entradas al histórico del mismo caso (no crean uno nuevo). El caso se cierra
-  explícitamente con "cerrar caso" al re-aprobar.
-- **Histórico inmutable:** reportes, comentarios, evidencias y cambios de estado con autor/timestamp se
-  conservan siempre y son consultables aunque el CA esté aprobado/cerrado.
-- Reabrir un CA aprobado solo lo puede hacer un usuario con `esAdmin: true` o un rol con `aprobar_rechazar`,
-  y queda registrado en histórico.
-- **Evidencias:** imágenes (png/jpg/webp, máx 10 MB), video (mp4/webm, máx 100 MB), múltiples archivos por
-  reporte, validación de tipo MIME y tamaño en backend (no solo frontend).
+- **Reportes (casos) de rechazo:** un rechazo abre un `Reporte` (`estadoCaso: abierto`); rechazos
+  sucesivos sobre el mismo caso (tras un ciclo de `solucionar`) agregan entradas al mismo documento en vez
+  de crear uno nuevo — `registrarEntradaReporte()` en `services/criterio.service.js` busca primero un
+  reporte del criterio con `estadoCaso` en `abierto`/`solucionado` antes de decidir si continúa ese caso o
+  crea uno (solo `reabrir` siempre crea uno nuevo, ver más arriba). El caso se cierra explícitamente con
+  `cerrar_caso` al re-aprobar tras una solución (`estadoCaso: cerrado`); un `aprobar` directo (camino
+  feliz, sin rechazo previo) nunca genera un `Reporte`.
+- **Histórico inmutable:** `GET /criterios/:id/reportes` (`services/reporte.service.js`) devuelve todos
+  los reportes del criterio con sus entradas (comentario, evidencias, autor, timestamp, `porAdmin`) y usa
+  el mismo `cargarCriterioConAcceso` que el resto de operaciones de criterio — consultable aunque el CA
+  esté `APROBADO`/el caso `cerrado`, sin filtrar por estado.
+- Reabrir un CA aprobado solo lo puede hacer un usuario con `esAdmin: true` o un rol con `aprobar_rechazar`
+  (misma columna/capacidad que `aprobar_rechazar`), y queda registrado en el histórico (entrada tipo
+  `reapertura`).
+- **Evidencias:** imágenes (png/jpg/webp, máx `MAX_IMAGE_MB`), video (mp4/webm, máx `MAX_VIDEO_MB`),
+  múltiples archivos por acción (campo multipart `evidencias`, hasta 10). `middleware/upload.middleware.js`
+  (multer) valida el MIME contra la lista permitida y aplica un límite global de tamaño (el mayor de los
+  dos máximos); `utils/evidencias.js#validarYMapearEvidencias` valida el máximo específico por tipo
+  después de que multer ya escribió a disco, borrando el/los archivo(s) si algo falla. El nombre en disco
+  es siempre un UUID generado en servidor (nunca el `originalname` del cliente), bajo
+  `UPLOADS_PATH/<tenantId>/`. `GET /uploads/:archivo` (`services/evidencia.service.js`) resuelve el tenant
+  SIEMPRE de `auth.tenantId` (nunca de la URL) y además reverifica que el usuario tenga acceso al proyecto
+  dueño del reporte que referencia esa evidencia — no alcanza con que el archivo sea del mismo tenant.
 - **Webhooks:** CRUD a nivel de proyecto (requiere `esAdmin: true`); proveedor `google_chat` (formato
   cards/texto específico) o `generico` (POST JSON plano, ver payload estándar en PRD sección 7.4). Envío
   con timeout de 10 s y 2 reintentos (5 s y 15 s de espera), sin bloquear la operación del usuario si falla;
@@ -238,7 +299,15 @@ lo ya implementado — replicar, no reinventar:
 - **Errores de Mongoose que no son `ApiError` se mapean a 400, no al 500 genérico** (`middleware/
   errorHandler.js`): un `ValidationError` (schema `required`/`maxlength`/`enum` fallido) o un `CastError`
   (ObjectId malformado en un campo que no pasa por `validarIdParam`, ej. un `rolId` dentro de un array)
-  responden 400 con mensaje sanitizado en vez de un 500 con status incorrecto.
+  responden 400 con mensaje sanitizado en vez de un 500 con status incorrecto. Mismo tratamiento para
+  `MulterError` (límite de tamaño/cantidad de archivos excedido en una subida) — se mapea a 400, no 500.
+- **Un endpoint que sirve archivos de disco (`GET /uploads/:archivo`) nunca resuelve la ruta con un
+  `tenantId` de la URL/body, solo con `auth.tenantId`**, y valida el nombre de archivo contra un patrón
+  estricto (`^[a-zA-Z0-9-]+\.[a-zA-Z0-9]+$`) antes de tocar el filesystem — el nombre en disco siempre lo
+  genera el servidor (UUID), así que cualquier valor que no matchee ese patrón no puede ser un archivo
+  real y se rechaza con 400 sin intentar leerlo (evita path traversal). Además reverifica acceso al
+  proyecto dueño del recurso que referencia el archivo, no solo el tenant. Ver
+  `services/evidencia.service.js`.
 - **Cualquier arreglo de ids de cliente que se use en un filtro Mongo se valida elemento por elemento**
   (`stringParaFiltro` en cada iteración), aunque exista una verificación de "mismo conjunto que los ids
   reales" aguas abajo — no asumir que esa verificación por sí sola es suficiente documentación de la

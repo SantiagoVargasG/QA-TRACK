@@ -1,4 +1,5 @@
 const criterioService = require('../services/criterio.service');
+const { limpiarArchivos } = require('../utils/evidencias');
 
 async function listar(req, res, next) {
   try {
@@ -51,8 +52,11 @@ async function eliminar(req, res, next) {
 
 async function aplicarCheck(req, res, next) {
   try {
-    res.json(await criterioService.aplicarCheck(req.auth.tenantId, req.params.id, req.auth, req.body));
+    res.json(
+      await criterioService.aplicarCheck(req.auth.tenantId, req.params.id, req.auth, req.body, req.files),
+    );
   } catch (err) {
+    limpiarArchivos(req.files);
     next(err);
   }
 }

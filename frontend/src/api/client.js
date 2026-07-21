@@ -10,7 +10,10 @@ function setToken(token) {
 }
 
 async function apiFetch(path, { method = 'GET', body, auth = true } = {}) {
-  const headers = { 'Content-Type': 'application/json' };
+  // FormData (evidencias multipart) no lleva Content-Type manual ni JSON.stringify: el
+  // navegador arma el boundary correcto si se lo dejamos poner a él.
+  const esFormData = body instanceof FormData;
+  const headers = esFormData ? {} : { 'Content-Type': 'application/json' };
   if (auth) {
     const token = getToken();
     if (token) headers.Authorization = `Bearer ${token}`;
@@ -19,7 +22,7 @@ async function apiFetch(path, { method = 'GET', body, auth = true } = {}) {
   const res = await fetch(`/api${path}`, {
     method,
     headers,
-    body: body ? JSON.stringify(body) : undefined,
+    body: esFormData ? body : body ? JSON.stringify(body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -28,4 +31,16 @@ async function apiFetch(path, { method = 'GET', body, auth = true } = {}) {
   return data;
 }
 
-export { apiFetch, getToken, setToken };
+// Para evidencias (imágenes/video): un <img>/<video> no puede mandar el header
+// Authorization, así que se descarga el archivo autenticado y se expone como object URL.
+async function apiFetchBlob(path) {
+  const headers = {};
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const res = await fetch(`/api${path}`, { headers });
+  if (!res.ok) throw new Error(`Error ${res.status}`);
+  return res.blob();
+}
+
+export { apiFetch, apiFetchBlob, getToken, setToken };

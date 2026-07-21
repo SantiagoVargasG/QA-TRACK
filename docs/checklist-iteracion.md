@@ -66,6 +66,22 @@ identificado se agregan aquí antes de cerrarla.
   prueba también con formato no-ObjectId**, no solo con tipo incorrecto (`stringParaFiltro` cubre "no es
   string", pero no "es string pero no es un ObjectId válido") — para confirmar que el `CastError` resultante
   lo mapea `errorHandler.js` a 400 y no escala a un 500 sin controlar.
+- [ ] **Todo endpoint que sirve archivos de disco resuelve el tenant/dueño SIEMPRE desde `auth`, nunca
+  desde la URL/body**, y valida el nombre de archivo contra un patrón estricto antes de tocar el
+  filesystem (el nombre en disco lo genera el servidor, ej. UUID — cualquier valor que no matchee ese
+  patrón no puede ser un archivo real y se rechaza con 400 sin leer el filesystem). Además reverifica
+  acceso al recurso de negocio dueño del archivo (proyecto/equipo), no solo que sea del mismo tenant. Ver
+  `services/evidencia.service.js` (detectado al implementar `GET /uploads/:archivo` en la Iteración 4).
+- [ ] **Cualquier subida de archivos (multer u otro) mapea sus errores propios (`MulterError`) a 400 en el
+  `errorHandler` central**, igual que `ValidationError`/`CastError`/`11000` — no debe escalar a un 500 sin
+  controlar por un límite de tamaño o cantidad de archivos excedido.
+- [ ] **Todo estado de frontend que una ruta necesita para renderizar (no solo el recurso de esa página,
+  sino contexto compartido como "proyecto/tenant actual") se carga de forma que sobreviva una recarga
+  completa de página o una navegación directa por URL** — nunca depender de que el usuario haya visitado
+  antes una página específica que "de paso" precargó ese estado. Verificar recargando (o navegando
+  directo) la página más profunda de la jerarquía, no solo el flujo de clics feliz desde el inicio
+  (detectado en la Iteración 4: `ProyectoContext` solo cargaba `proyectos` desde `ProyectosPage`, dejando
+  `columnasCheck` vacío en silencio al entrar directo a `/modulos/:id`).
 
 ## Calidad
 

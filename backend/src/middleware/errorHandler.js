@@ -32,6 +32,10 @@ function errorHandler(err, req, res, next) {
     // caiga al 500 genérico.
     status = 409;
     mensaje = 'El recurso ya existe o hay un conflicto de concurrencia; reintentá la operación';
+  } else if (!status && err.name === 'MulterError') {
+    // Límite de tamaño/cantidad de archivos excedido en la subida de evidencias.
+    status = 400;
+    mensaje = 'Error al subir el archivo: ' + err.message;
   }
 
   status = status || 500;
