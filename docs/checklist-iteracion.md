@@ -40,7 +40,12 @@ identificado se agregan aquí antes de cerrarla.
 - [ ] **Cualquier estado "irrecuperable sin acceso directo a la BD" tiene un guard explícito** (ej. no
   puede quedar un tenant sin ningún admin activo; no se puede borrar una entidad de la que otra depende
   de forma irreversible). Ver `contarAdminsActivosExcluyendo()` en `usuario.service.js` como referencia
-  del patrón.
+  del patrón. El mismo principio aplica a cualquier entidad de configuración referenciada por id desde
+  otra colección sin integridad referencial nativa de Mongo (ej. un rol referenciado por
+  `Proyecto.equipo[].rolId`/`columnasCheck[].rolId`): antes de eliminarla, verificar que no esté en uso y
+  rechazar con un mensaje explícito si lo está, en vez de dejar la referencia colgante. Ver
+  `rolService.eliminar()` (detectado en la auditoría de Iteración 6: eliminar un rol en uso rompía en
+  silencio la capacidad de los miembros que lo tenían asignado, sin ningún aviso al admin).
 - [ ] **Sin dependencias prohibidas** (Redis, colas de mensajes, caché distribuida, librerías de UI
   pesadas) en ningún `package.json` nuevo o modificado.
 - [ ] **`npm audit` en 0 vulnerabilidades** (o, si hay alguna inevitable, documentada y justificada
@@ -99,10 +104,19 @@ identificado se agregan aquí antes de cerrarla.
   no solo un catch global) y solo loguear, nunca dejar que un fallo de entrega se propague como error HTTP
   de la operación que la originó. Ver `notificarEventoCriterio()`/`reportarPrueba()` en
   `services/webhook.service.js`, llamadas sin `await` desde `criterio.service.js`.
-- [ ] **Toda URL de destino provista por el cliente (ej. la de un webhook) se valida con `new URL()` y se
-  restringe a protocolos esperados (`http`/`https`)** antes de guardarla — un valor no parseable como URL
-  no debe llegar a usarse en un `fetch` posterior sin que el error ya haya sido detectado en la validación
-  de entrada.
+- [ ] **Toda URL de destino provista por el cliente que el servidor va a `fetch()` (ej. la de un webhook)
+  se valida con `new URL()`, se restringe a protocolos esperados (`http`/`https`), Y ADEMÁS se protege
+  contra SSRF resolviendo el host por DNS y rechazando cualquier dirección resuelta que caiga en loopback
+  (`127.0.0.0/8`, `::1`), rangos privados (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), link-local
+  (`169.254.0.0/16`, incluye el endpoint de metadata de credenciales de AWS/GCP/Azure) o el hostname literal
+  `localhost`** — un dominio público puede resolver a una IP privada (o cambiar para hacerlo más adelante),
+  así que no alcanza con mirar el string de la URL ni con validar solo formato/protocolo; hay que resolver
+  y validar cada dirección devuelta, no solo la primera. Ver `validarUrl()` en `services/webhook.service.js`
+  (detectado en la auditoría de Iteración 6: se confirmó con un servidor HTTP real en `127.0.0.1` que,
+  antes de este guard, el `fetch()` saliente efectivamente llegaba). Nota: esto valida en el momento de
+  guardar la URL, no en cada envío — no cubre DNS rebinding (que un hostname cambie de IP pública a
+  privada después de creado el webhook); ampliar a validación en tiempo de envío si se decide que ese
+  riesgo importa.
 - [ ] **Todo registro de auditoría (o cualquier efecto secundario "de constancia", no crítico para el
   resultado de la operación) se envuelve en su propio try/catch y nunca hace fallar la operación
   principal que lo originó** — a diferencia de una integración de red (que se dispara sin `await`), un
@@ -126,6 +140,12 @@ identificado se agregan aquí antes de cerrarla.
 - [ ] **La suite de pruebas completa (no solo los asserts nuevos) se re-ejecuta y queda en verde** antes
   de reportar la iteración como completa — para detectar regresiones en código previo, no solo validar
   lo nuevo.
+- [ ] **Ningún assert usa un operador que lo vuelva tautológico** (ej. `condicion || true`,
+  una negación invertida que siempre da verdadero, un `assert.ok('texto')` con un literal en vez de una
+  condición real) — antes de cerrar una iteración, revisar que cada assert nuevo realmente pueda fallar
+  (¿este assert detectaría el bug si el código bajo prueba no hiciera lo que promete?). Detectado en la
+  auditoría de Iteración 6: `assert.ok(x.every((e) => e.usuarioId === id || true))` en
+  `tests/auditoria.test.js` nunca podía fallar por el `|| true`.
 - [ ] **Para cambios de frontend, se verificó la funcionalidad en un navegador real** (Playwright u otra
   herramienta equivalente), no solo que el código compile o pase linters.
 - [ ] **Ningún archivo de frontend invoca un endpoint que no está registrado en las rutas del backend de la

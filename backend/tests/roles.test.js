@@ -72,6 +72,57 @@ describe('roles: CRUD, validación de capacidades y aislamiento de tenant', () =
     assert.equal(resp.status, 200);
   });
 
+  it('no se puede eliminar un rol en uso en el equipo o en columnasCheck de un proyecto; sí una vez liberado', async () => {
+    const rol = await request(app)
+      .post('/api/roles')
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .send({ nombre: 'En Uso', capacidades: ['marcar_finalizado'] });
+    const rolId = rol.body.id;
+
+    const usuario = await crearUsuario(app, tokenAdmin, { email: 'enuso@roles.com' });
+    const proyecto = await request(app)
+      .post('/api/proyectos')
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .send({ nombre: 'Proyecto Rol En Uso' });
+    await request(app)
+      .put(`/api/proyectos/${proyecto.body.id}/equipo`)
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .send({ equipo: [{ usuarioId: usuario.body.id, rolId }] });
+
+    const enUsoEnEquipo = await request(app)
+      .delete(`/api/roles/${rolId}`)
+      .set('Authorization', `Bearer ${tokenAdmin}`);
+    assert.equal(enUsoEnEquipo.status, 400);
+    assert.match(enUsoEnEquipo.body.error, /en uso/);
+
+    // Liberar del equipo pero dejarlo asignado a una columna de check: sigue bloqueado.
+    await request(app)
+      .put(`/api/proyectos/${proyecto.body.id}/equipo`)
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .send({ equipo: [] });
+    await request(app)
+      .put(`/api/proyectos/${proyecto.body.id}/columnas-check`)
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .send({ columnasCheck: [{ nombre: 'Desarrollo', tipo: 'finalizado', rolId }] });
+
+    const enUsoEnColumna = await request(app)
+      .delete(`/api/roles/${rolId}`)
+      .set('Authorization', `Bearer ${tokenAdmin}`);
+    assert.equal(enUsoEnColumna.status, 400);
+    assert.match(enUsoEnColumna.body.error, /en uso/);
+
+    // Liberado de ambos lugares: ahora sí se puede eliminar.
+    await request(app)
+      .put(`/api/proyectos/${proyecto.body.id}/columnas-check`)
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .send({ columnasCheck: [{ nombre: 'Desarrollo', tipo: 'finalizado', rolId: null }] });
+
+    const liberado = await request(app)
+      .delete(`/api/roles/${rolId}`)
+      .set('Authorization', `Bearer ${tokenAdmin}`);
+    assert.equal(liberado.status, 200);
+  });
+
   it('roles de otro tenant no son visibles ni editables (404)', async () => {
     const regB = await registrarTenant(app, { nombreTenant: 'OtroTenantRoles', email: 'admin@otro.com' });
     const rolesB = await request(app).get('/api/roles').set('Authorization', `Bearer ${regB.body.token}`);

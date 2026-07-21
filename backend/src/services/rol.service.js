@@ -1,4 +1,5 @@
 const Rol = require('../models/Rol');
+const Proyecto = require('../models/Proyecto');
 const { ApiError } = require('../middleware/errorHandler');
 const CAPACIDADES_VALIDAS = require('../config/capacidades');
 const { validarLongitudMax, stringParaFiltro } = require('../utils/validacion');
@@ -64,6 +65,23 @@ async function eliminar(tenantId, id, usuarioId) {
   const rol = await Rol.findOne({ _id: id, tenantId });
   if (!rol) throw new ApiError(404, 'Rol no encontrado');
   if (rol.esSemilla) throw new ApiError(400, 'No se puede eliminar un rol semilla');
+
+  // Mongo no tiene integridad referencial: un rol puede estar asignado en el equipo o en
+  // las columnas de check de un proyecto sin que nada lo impida a nivel de BD. Borrarlo sin
+  // este guard dejaría esas referencias colgantes (equipo[].rolId / columnasCheck[].rolId
+  // apuntando a un rol inexistente), rompiendo en silencio el acceso de ese miembro la
+  // próxima vez que intente usar su capacidad — ver verificarCapacidadEnProyecto().
+  const proyectosEnUso = await Proyecto.countDocuments({
+    tenantId,
+    activo: true,
+    $or: [{ 'equipo.rolId': id }, { 'columnasCheck.rolId': id }],
+  });
+  if (proyectosEnUso > 0) {
+    throw new ApiError(
+      400,
+      `No se puede eliminar: el rol está en uso en ${proyectosEnUso} proyecto(s). Reasigná esos miembros o columnas antes de eliminarlo.`,
+    );
+  }
 
   await rol.deleteOne();
   await auditoriaService.registrar(tenantId, 'rol', rol._id, 'rol_eliminado', usuarioId, `Rol "${rol.nombre}" eliminado`);

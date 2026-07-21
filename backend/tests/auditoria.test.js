@@ -55,7 +55,10 @@ describe('eventosAuditoria: registro de acciones administrativas y GET /auditori
       eventosDelRol.map((e) => e.accion).sort(),
       ['rol_actualizado', 'rol_creado', 'rol_eliminado'],
     );
-    assert.ok(eventosDelRol.every((e) => e.usuarioId === base.usuarios.dev.id || true));
+    assert.ok(
+      eventosDelRol.every((e) => e.usuarioId === base.usuarios.admin.id),
+      'los tres eventos deben quedar atribuidos al admin que ejecutó las acciones',
+    );
     assert.ok(eventosDelRol[0].fecha);
   });
 

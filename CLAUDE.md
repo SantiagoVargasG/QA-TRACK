@@ -27,7 +27,7 @@ Cada archivo en `backend/tests/` levanta su propia MongoDB real en memoria (`mon
 ejercita la app completa vía `supertest` — no hay mocks de la capa de datos. Ver `tests/helpers/entorno.js`
 (arranca/detiene la base en memoria) y `tests/helpers/fixtures.js` (tenant + equipo Dev/QA/Lector +
 forastero, reutilizado por los tests de proyectos/módulos/requerimientos/historias/criterios/reportes/
-webhooks/auditoría). 107 tests en 15 suites, todos en verde.
+webhooks/auditoría). 109 tests en 15 suites, todos en verde.
 
 Implementado hasta la Iteración 6 (MVP completo):
 - **Iteración 0:** esqueleto Express con manejo de errores consistente y `GET /api/health`; conexión a
@@ -127,6 +127,17 @@ Implementado hasta la Iteración 6 (MVP completo):
     reapertura, cambios de roles/equipo" como los tres casos a cubrir, y `actualizarColumnasCheck` es
     configuración de proyecto, no "cambio de rol" ni "cambio de equipo" en sentido estricto. Se prefirió
     seguir la lista literal del PRD antes que expandir el alcance por inferencia.
+- Auditoría de Iteración 6 (ver historial de conversación): se detectó y corrigió un SSRF — cualquier
+  admin de tenant podía registrar un webhook apuntando a un host interno (loopback/privado/link-local,
+  incluido el endpoint de metadata de credenciales de nube en `169.254.169.254`) y el servidor efectivamente
+  le hacía `fetch()`; confirmado con un servidor HTTP real en `127.0.0.1` antes del fix. `validarUrl()` en
+  `services/webhook.service.js` ahora resuelve el host por DNS y rechaza esos rangos (ver "Seguridad:
+  patrones obligatorios" más abajo) — los tests que necesitan entrega real a un servidor mock local ahora
+  insertan el documento `Webhook` directo por el modelo (`crearWebhookDirecto()` en `tests/webhooks.test.js`)
+  en vez de pasar por el endpoint de creación, que ya no lo permitiría. También se agregó un guard en
+  `rolService.eliminar()` (rechaza si el rol está en uso en `equipo`/`columnasCheck` de algún proyecto, en
+  vez de dejar la referencia colgante) y se corrigió un assert tautológico (`|| true`) en
+  `tests/auditoria.test.js` que nunca podía fallar.
 - **Script de datos semilla** (`backend/src/seed.js`, `npm run seed` en `backend/`): crea un tenant "Demo"
   (slug `demo`) reutilizando `authService.registrarTenant()` (siembra los roles automáticamente), un admin
   y dos usuarios (Dev/QA) agregados al equipo de "Proyecto Demo", que tiene 2 módulos con 1 requerimiento,
@@ -334,7 +345,9 @@ defecto en producción.
   el llamador** (fire-and-forget) para no bloquear la operación del usuario si falla; el resultado de cada
   intento se registra en log (`console.log`/`console.error`), nunca se propaga como error HTTP al usuario.
   Un webhook `activo: false` o no suscrito al evento disparado simplemente no se notifica (filtrado en la
-  query, no hay envío "fallido" que loguear en ese caso).
+  query, no hay envío "fallido" que loguear en ese caso). `validarUrl()` protege contra SSRF: resuelve el
+  host por DNS y rechaza loopback, rangos privados y link-local (incluida metadata de nube) además de
+  formato/protocolo — ver "Seguridad: patrones obligatorios" más abajo.
 - **"Reportar prueba"** (`POST /proyectos/:id/reportar-prueba`) es una acción manual (no automática)
   disponible para roles con `aprobar_rechazar` (no `esAdmin`): selecciona módulo + HU probadas (validado
   que las HU pertenezcan a ese módulo, no solo al proyecto), resultado `exitosa`/`con_errores`, comentario
@@ -344,14 +357,27 @@ defecto en producción.
   devuelve de inmediato el resumen armado más `webhooksNotificados` (cuántos webhooks se encolaron, sin
   esperar confirmación de entrega — mismo motivo fire-and-forget que el resto de los eventos).
 
-## Seguridad: patrones obligatorios (de las auditorías de Iteración 1, 2 y 3+4)
+## Seguridad: patrones obligatorios (de las auditorías de Iteración 1, 2, 3+4 y 6)
 
 Estos patrones surgieron de auditorías de seguridad dirigidas. La de Iteración 1 (multitenancy + auth)
 encontró y corrigió 3 vulnerabilidades críticas; la de Iteración 2 encontró una condición de carrera y la
 ausencia total de una suite de pruebas persistida; la de Iteración 3+4 encontró una condición de carrera en
-las transiciones de estado del criterio. Son reglas para **toda** iteración futura, no solo para lo ya
+las transiciones de estado del criterio; la de Iteración 6 encontró un SSRF en la URL de webhooks y una
+eliminación de rol sin guard de "en uso". Son reglas para **toda** iteración futura, no solo para lo ya
 implementado — replicar, no reinventar:
 
+- **Toda URL de destino provista por el cliente que el servidor va a `fetch()` se protege contra SSRF**:
+  además de `new URL()` + restricción de protocolo (`http`/`https`), se resuelve el host por DNS
+  (`dns.promises.lookup(hostname, { all: true })`) y se rechaza si CUALQUIERA de las direcciones resueltas
+  cae en loopback (`127.0.0.0/8`, `::1`), privado (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`),
+  link-local (`169.254.0.0/16`, incluye metadata de nube) o el hostname literal `localhost` — un dominio
+  público puede resolver a una IP privada, así que mirar el string no alcanza. Ver `validarUrl()` en
+  `services/webhook.service.js`. Los tests que necesiten entrega real a un servidor local deben insertar el
+  documento directo por el modelo (bypaseando el endpoint de creación), no relajar este guard.
+- **Antes de eliminar una entidad de configuración referenciada por id desde otra colección (sin
+  integridad referencial nativa de Mongo), verificar que no esté en uso y rechazar con mensaje explícito
+  si lo está** — mismo espíritu que la regla de "último admin", generalizada. Ver `rolService.eliminar()`
+  (`Proyecto.equipo[].rolId` / `columnasCheck[].rolId`).
 - **Toda transición de estado (no solo contadores) se reclama con un `findOneAndUpdate` atómico que incluye
   el/los estado(s) de origen esperados en el filtro** (`{ _id, estado: { $in: origenes } }` → `$set` del
   destino), nunca con un `Modelo.findOne()` + mutación en memoria + `.save()` condicionado por un `if`

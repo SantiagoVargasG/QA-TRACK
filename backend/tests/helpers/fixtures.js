@@ -59,7 +59,7 @@ async function crearTenantConEquipoBase(app) {
     tenantSlug,
     tokenAdmin,
     roles: { dev: rolDev, qa: rolQA, lector: rolLector },
-    usuarios: { dev, qa, lector, forastero },
+    usuarios: { admin: reg.body.usuario, dev, qa, lector, forastero },
     tokens: { admin: tokenAdmin, dev: tokenDev, qa: tokenQA, lector: tokenLector, forastero: tokenForastero },
   };
 }

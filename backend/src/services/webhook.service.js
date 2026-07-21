@@ -1,3 +1,5 @@
+const dns = require('dns').promises;
+const net = require('net');
 const Webhook = require('../models/Webhook');
 const Proyecto = require('../models/Proyecto');
 const Modulo = require('../models/Modulo');
@@ -27,7 +29,51 @@ function webhookPublico(webhook) {
   };
 }
 
-function validarUrl(url) {
+// Rangos de red a los que el servidor nunca debe hacer fetch() aunque el cliente los pida
+// como destino de un webhook (SSRF): loopback, privados, y link-local (incluye
+// 169.254.169.254, el endpoint de metadata de credenciales en AWS/GCP/Azure).
+const RANGOS_IPV4_BLOQUEADOS = [
+  ['127.0.0.0', 8], // loopback
+  ['10.0.0.0', 8], // privado
+  ['172.16.0.0', 12], // privado
+  ['192.168.0.0', 16], // privado
+  ['169.254.0.0', 16], // link-local, incluye metadata de nube
+];
+
+function ipv4ANumero(ip) {
+  return ip.split('.').reduce((acc, octeto) => (acc << 8) + Number(octeto), 0) >>> 0;
+}
+
+function ipv4EnRango(ip, base, bits) {
+  const mascara = bits === 0 ? 0 : (~0 << (32 - bits)) >>> 0;
+  return (ipv4ANumero(ip) & mascara) === (ipv4ANumero(base) & mascara);
+}
+
+function esIpBloqueada(ip) {
+  const version = net.isIP(ip);
+  if (version === 4) {
+    return RANGOS_IPV4_BLOQUEADOS.some(([base, bits]) => ipv4EnRango(ip, base, bits));
+  }
+  if (version === 6) {
+    const normalizada = ip.toLowerCase();
+    if (normalizada === '::1') return true; // loopback IPv6
+    if (normalizada.startsWith('::ffff:')) {
+      // IPv4 mapeada en IPv6 (ej. ::ffff:127.0.0.1) — validar la parte IPv4.
+      const mapeada = normalizada.split(':').pop();
+      if (net.isIP(mapeada) === 4) return esIpBloqueada(mapeada);
+    }
+    return false;
+  }
+  return false;
+}
+
+const MENSAJE_HOST_BLOQUEADO = 'url no puede apuntar a localhost ni a una dirección interna';
+
+// Un dominio público puede resolver a una IP privada (o cambiar para hacerlo más adelante),
+// así que no alcanza con mirar el string de la URL: se resuelve el hostname por DNS — la
+// misma resolución que usará el fetch() real en webhookDisparo.service.js — y se valida
+// CADA dirección devuelta, no solo la primera (SSRF, ver auditoría de Iteración 6).
+async function validarUrl(url) {
   stringParaFiltro(url, 'url');
   if (!url) throw new ApiError(400, 'url es requerida');
   validarLongitudMax(url, 'url', 500);
@@ -39,6 +85,20 @@ function validarUrl(url) {
   }
   if (!['http:', 'https:'].includes(parsed.protocol)) {
     throw new ApiError(400, 'url debe ser una URL http(s) válida');
+  }
+
+  if (parsed.hostname.toLowerCase() === 'localhost') {
+    throw new ApiError(400, MENSAJE_HOST_BLOQUEADO);
+  }
+
+  let direcciones;
+  try {
+    direcciones = await dns.lookup(parsed.hostname, { all: true, verbatim: true });
+  } catch {
+    throw new ApiError(400, 'no se pudo resolver el host de la url');
+  }
+  if (direcciones.some((d) => esIpBloqueada(d.address))) {
+    throw new ApiError(400, MENSAJE_HOST_BLOQUEADO);
   }
 }
 
@@ -73,7 +133,7 @@ async function crear(tenantId, proyectoId, { nombre, url, proveedor, eventos, ac
 
   if (!nombre) throw new ApiError(400, 'nombre es requerido');
   validarLongitudMax(nombre, 'nombre', 100);
-  validarUrl(url);
+  await validarUrl(url);
   if (!PROVEEDORES_VALIDOS.includes(proveedor)) throw new ApiError(400, `proveedor inválido: ${proveedor}`);
   validarEventos(eventos);
   const activoValidado = booleanoOpcional(activo, 'activo');
@@ -100,7 +160,7 @@ async function actualizar(tenantId, proyectoId, webhookId, { nombre, url, provee
     webhook.nombre = nombre;
   }
   if (url !== undefined) {
-    validarUrl(url);
+    await validarUrl(url);
     webhook.url = url;
   }
   if (proveedor !== undefined) {

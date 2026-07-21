@@ -12,6 +12,12 @@ const mongoose = require('mongoose');
 const entorno = require('./helpers/entorno');
 const { registrarTenant, crearTenantConEquipoBase, crearProyectoConEquipo } = require('./helpers/fixtures');
 
+// IP pública real (Google Public DNS) usada como "url válida" en los tests que solo
+// ejercitan el CRUD/la validación, no la entrega real — pasa el guard de SSRF sin depender
+// de resolución DNS de un hostname (dns.lookup de un literal de IP no hace red) y sin
+// necesitar que el test realmente la alcance (esos tests nunca disparan una entrega).
+const URL_PUBLICA_VALIDA = 'http://8.8.8.8/webhook';
+
 function crearServidorMock() {
   const requests = [];
   let comportamiento = () => 200;
@@ -108,12 +114,31 @@ describe('webhooks: CRUD, disparo por evento, reintentos y reportar-prueba', () 
       .set('Authorization', `Bearer ${base.tokens.admin}`)
       .send({
         nombre: 'Webhook de prueba',
-        url: mockUrl,
+        url: URL_PUBLICA_VALIDA,
         proveedor: 'generico',
         eventos: ['criterio_rechazado'],
         ...overrides,
       });
     return resp;
+  }
+
+  // El guard de SSRF (Iteración 6) rechaza cualquier URL que resuelva a loopback/privada —
+  // incluida 127.0.0.1, que es justamente donde escucha el servidor mock de este archivo. Los
+  // tests de disparo/entrega real necesitan que el webhook apunte de verdad al mock, así que
+  // insertan el documento directo por el modelo, bypaseando la validación de creación — están
+  // probando el MECANISMO de entrega (enviarConReintentos), no el endpoint de creación (que ya
+  // se prueba por separado, con URLs que si pasan la validación).
+  async function crearWebhookDirecto(overrides = {}) {
+    return mongoose.model('Webhook').create({
+      tenantId: base.tenantId,
+      proyectoId,
+      nombre: 'Webhook de prueba (directo)',
+      url: mockUrl,
+      proveedor: 'generico',
+      eventos: ['criterio_rechazado'],
+      activo: true,
+      ...overrides,
+    });
   }
 
   async function crearHistoriaConCriterio(texto = 'Como QA quiero verificar') {
@@ -183,20 +208,48 @@ describe('webhooks: CRUD, disparo por evento, reintentos y reportar-prueba', () 
       const proveedorInvalido = await request(app)
         .post(`/api/proyectos/${proyectoId}/webhooks`)
         .set('Authorization', `Bearer ${base.tokens.admin}`)
-        .send({ nombre: 'X', url: mockUrl, proveedor: 'slack', eventos: ['criterio_aprobado'] });
+        .send({ nombre: 'X', url: URL_PUBLICA_VALIDA, proveedor: 'slack', eventos: ['criterio_aprobado'] });
       assert.equal(proveedorInvalido.status, 400);
 
       const sinEventos = await request(app)
         .post(`/api/proyectos/${proyectoId}/webhooks`)
         .set('Authorization', `Bearer ${base.tokens.admin}`)
-        .send({ nombre: 'X', url: mockUrl, proveedor: 'generico', eventos: [] });
+        .send({ nombre: 'X', url: URL_PUBLICA_VALIDA, proveedor: 'generico', eventos: [] });
       assert.equal(sinEventos.status, 400);
 
       const eventoInvalido = await request(app)
         .post(`/api/proyectos/${proyectoId}/webhooks`)
         .set('Authorization', `Bearer ${base.tokens.admin}`)
-        .send({ nombre: 'X', url: mockUrl, proveedor: 'generico', eventos: ['evento_inventado'] });
+        .send({ nombre: 'X', url: URL_PUBLICA_VALIDA, proveedor: 'generico', eventos: ['evento_inventado'] });
       assert.equal(eventoInvalido.status, 400);
+    });
+
+    it('url bloquea SSRF: loopback, privados y link-local/metadata de nube; una IP pública sigue pasando', async () => {
+      const casosBloqueados = [
+        ['loopback IPv4', 'http://127.0.0.1/x'],
+        ['loopback IPv6', 'http://[::1]/x'],
+        ['privado 10.0.0.0/8', 'http://10.0.0.5/x'],
+        ['privado 172.16.0.0/12', 'http://172.16.5.5/x'],
+        ['privado 192.168.0.0/16', 'http://192.168.1.1/x'],
+        ['link-local / metadata de nube', 'http://169.254.169.254/x'],
+        ['localhost literal', 'http://localhost/x'],
+      ];
+
+      // eslint-disable-next-line no-restricted-syntax
+      for (const [nombreCaso, url] of casosBloqueados) {
+        // eslint-disable-next-line no-await-in-loop
+        const resp = await request(app)
+          .post(`/api/proyectos/${proyectoId}/webhooks`)
+          .set('Authorization', `Bearer ${base.tokens.admin}`)
+          .send({ nombre: 'Bloqueado', url, proveedor: 'generico', eventos: ['criterio_aprobado'] });
+        assert.equal(resp.status, 400, `${nombreCaso} (${url}) debería rechazarse con 400, obtuve ${resp.status}`);
+      }
+
+      const conIpPublica = await request(app)
+        .post(`/api/proyectos/${proyectoId}/webhooks`)
+        .set('Authorization', `Bearer ${base.tokens.admin}`)
+        .send({ nombre: 'Público', url: URL_PUBLICA_VALIDA, proveedor: 'generico', eventos: ['criterio_aprobado'] });
+      assert.equal(conIpPublica.status, 201, 'una IP pública real no debe bloquearse por el guard de SSRF');
     });
 
     it('listar/actualizar/eliminar: cross-tenant -> 404, id malformado -> 400, actualización parcial', async () => {
@@ -248,7 +301,7 @@ describe('webhooks: CRUD, disparo por evento, reintentos y reportar-prueba', () 
 
   describe('disparo de eventos', () => {
     it('rechazar un criterio dispara "criterio_rechazado" al webhook suscrito (proveedor genérico)', async () => {
-      await crearWebhook({ eventos: ['criterio_rechazado'] });
+      await crearWebhookDirecto({ eventos: ['criterio_rechazado'] });
       const { criterioId } = await crearHistoriaConCriterio();
       await finalizar(criterioId);
 
@@ -268,7 +321,7 @@ describe('webhooks: CRUD, disparo por evento, reintentos y reportar-prueba', () 
     });
 
     it('un webhook con proveedor google_chat recibe un cardsV2 en vez del payload plano', async () => {
-      await crearWebhook({ eventos: ['criterio_rechazado'], proveedor: 'google_chat' });
+      await crearWebhookDirecto({ eventos: ['criterio_rechazado'], proveedor: 'google_chat' });
       const { criterioId } = await crearHistoriaConCriterio();
       await finalizar(criterioId);
       await rechazar(criterioId, 'Ver formato Google Chat');
@@ -280,7 +333,7 @@ describe('webhooks: CRUD, disparo por evento, reintentos y reportar-prueba', () 
     });
 
     it('un webhook desactivado no recibe notificaciones', async () => {
-      await crearWebhook({ eventos: ['criterio_rechazado'], activo: false });
+      await crearWebhookDirecto({ eventos: ['criterio_rechazado'], activo: false });
       const { criterioId } = await crearHistoriaConCriterio();
       await finalizar(criterioId);
       await rechazar(criterioId);
@@ -290,7 +343,7 @@ describe('webhooks: CRUD, disparo por evento, reintentos y reportar-prueba', () 
     });
 
     it('un webhook no suscrito al evento disparado no recibe notificaciones', async () => {
-      await crearWebhook({ eventos: ['caso_cerrado'] });
+      await crearWebhookDirecto({ eventos: ['caso_cerrado'] });
       const { criterioId } = await crearHistoriaConCriterio();
       await finalizar(criterioId);
       await rechazar(criterioId);
@@ -300,7 +353,7 @@ describe('webhooks: CRUD, disparo por evento, reintentos y reportar-prueba', () 
     });
 
     it('aprobar (camino feliz) dispara "criterio_aprobado"; reabrir un CA aprobado dispara "criterio_rechazado"', async () => {
-      await crearWebhook({ eventos: ['criterio_aprobado', 'criterio_rechazado'] });
+      await crearWebhookDirecto({ eventos: ['criterio_aprobado', 'criterio_rechazado'] });
       const { criterioId } = await crearHistoriaConCriterio();
       await finalizar(criterioId);
       await request(app)
@@ -321,7 +374,7 @@ describe('webhooks: CRUD, disparo por evento, reintentos y reportar-prueba', () 
     });
 
     it('reintenta ante fallas transitorias y termina entregando (2 fallos + 1 éxito = 3 intentos)', async () => {
-      await crearWebhook({ eventos: ['criterio_rechazado'] });
+      await crearWebhookDirecto({ eventos: ['criterio_rechazado'] });
       mock.setComportamiento((n) => (n < 3 ? 500 : 200));
       const { criterioId } = await crearHistoriaConCriterio();
       await finalizar(criterioId);
@@ -382,7 +435,7 @@ describe('webhooks: CRUD, disparo por evento, reintentos y reportar-prueba', () 
     });
 
     it('arma el resumen con los CA rechazados (comentario más reciente) y dispara prueba_reportada', async () => {
-      await crearWebhook({ eventos: ['prueba_reportada'] });
+      await crearWebhookDirecto({ eventos: ['prueba_reportada'] });
 
       const { historiaId, criterioId } = await crearHistoriaConCriterio('HU con rechazo');
       await finalizar(criterioId);
