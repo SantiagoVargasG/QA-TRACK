@@ -2,6 +2,7 @@ const { Router } = require('express');
 const { requireAuth } = require('../middleware/auth.middleware');
 const { validarIdParam } = require('../middleware/validateObjectId');
 const historiaController = require('../controllers/historia.controller');
+const webhookController = require('../controllers/webhook.controller');
 
 const router = Router();
 
@@ -30,6 +31,16 @@ router.delete(
   validarIdParam('requerimientoId'),
   validarIdParam('historiaId'),
   historiaController.eliminar,
+);
+
+// Acción manual "Enviar a webhook" (capacidad aprobar_rechazar, ver
+// webhookService.reportarHistoria) — no requiere requerimientoId en la ruta porque el
+// historiaId ya resuelve el proyecto vía cargarHistoriaConAcceso.
+router.post(
+  '/historias/:historiaId/reportar-webhook',
+  requireAuth,
+  validarIdParam('historiaId'),
+  webhookController.reportarHistoria,
 );
 
 module.exports = router;

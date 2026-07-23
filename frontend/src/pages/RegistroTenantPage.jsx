@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import PasswordInput from '../components/PasswordInput';
 
 function RegistroTenantPage() {
   const { autenticado, registrarTenant } = useAuth();
@@ -69,15 +70,16 @@ function RegistroTenantPage() {
         </div>
         <div>
           <label className="block text-sm text-gray-600" htmlFor="password">Contraseña</label>
-          <input
-            id="password"
-            type="password"
-            minLength={8}
-            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm"
-            value={form.password}
-            onChange={actualizarCampo('password')}
-            required
-          />
+          <div className="mt-1">
+            <PasswordInput
+              id="password"
+              minLength={8}
+              value={form.password}
+              onChange={actualizarCampo('password')}
+              autoComplete="new-password"
+              required
+            />
+          </div>
         </div>
 
         <button

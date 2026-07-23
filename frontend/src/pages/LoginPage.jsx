@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import PasswordInput from '../components/PasswordInput';
 
 function LoginPage() {
-  const { autenticado, login } = useAuth();
+  const { autenticado, login, sesionExpirada } = useAuth();
   const navigate = useNavigate();
-  const [form, setForm] = useState({ tenantSlug: '', email: '', password: '' });
+  const [form, setForm] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
   const [cargando, setCargando] = useState(false);
 
@@ -35,17 +36,12 @@ function LoginPage() {
         <h1 className="text-lg font-semibold text-gray-800">Iniciar sesión</h1>
 
         {error && <p className="rounded bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+        {!error && sesionExpirada && (
+          <p className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-700">
+            Tu sesión expiró, inicia de nuevo
+          </p>
+        )}
 
-        <div>
-          <label className="block text-sm text-gray-600" htmlFor="tenantSlug">Organización (slug)</label>
-          <input
-            id="tenantSlug"
-            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm"
-            value={form.tenantSlug}
-            onChange={actualizarCampo('tenantSlug')}
-            required
-          />
-        </div>
         <div>
           <label className="block text-sm text-gray-600" htmlFor="email">Email</label>
           <input
@@ -59,14 +55,15 @@ function LoginPage() {
         </div>
         <div>
           <label className="block text-sm text-gray-600" htmlFor="password">Contraseña</label>
-          <input
-            id="password"
-            type="password"
-            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm"
-            value={form.password}
-            onChange={actualizarCampo('password')}
-            required
-          />
+          <div className="mt-1">
+            <PasswordInput
+              id="password"
+              value={form.password}
+              onChange={actualizarCampo('password')}
+              autoComplete="current-password"
+              required
+            />
+          </div>
         </div>
 
         <button

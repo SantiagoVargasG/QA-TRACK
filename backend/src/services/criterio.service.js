@@ -10,7 +10,6 @@ const {
   cargarHistoriaConAcceso,
   cargarCriterioConAcceso,
 } = require('./acceso.service');
-const webhookService = require('./webhook.service');
 const auditoriaService = require('./auditoria.service');
 
 // Máquina de estados completa (PRD sección 6). Cada acción declara: a qué tipo de columna
@@ -18,6 +17,10 @@ const auditoriaService = require('./auditoria.service');
 // estado destino lleva, qué valor queda en `checks` para esa columna, y qué tipo de
 // entrada registra en el histórico de `reportes` (null si la acción no genera reporte —
 // solo el camino feliz finalizar/aprobar no lo genera).
+// Decisión post-MVP: estas acciones YA NO disparan webhooks por sí solas (antes cada
+// aprobar/rechazar/solucionar/cerrar_caso mandaba un evento individual, generando demasiado
+// ruido). El envío es ahora una acción manual por Historia de Usuario — ver
+// webhookService.reportarHistoria() y el botón "Enviar a webhook" del frontend.
 const ACCIONES = {
   finalizar: {
     tipoColumna: 'finalizado',
@@ -27,7 +30,6 @@ const ACCIONES = {
     valorCheck: 'finalizado',
     entradaTipo: null,
     comentarioRequerido: false,
-    evento: null,
   },
   aprobar: {
     tipoColumna: 'aprobacion',
@@ -37,7 +39,6 @@ const ACCIONES = {
     valorCheck: 'aprobado',
     entradaTipo: null,
     comentarioRequerido: false,
-    evento: 'criterio_aprobado',
   },
   // Rechazar tiene dos orígenes posibles: la primera vez (FINALIZADO_DEV, abre un caso
   // nuevo) o tras un ciclo de solución (SOLUCIONADO, reabre el mismo caso) — ver
@@ -50,7 +51,6 @@ const ACCIONES = {
     valorCheck: 'rechazado',
     entradaTipo: 'rechazo',
     comentarioRequerido: true,
-    evento: 'criterio_rechazado',
   },
   solucionar: {
     tipoColumna: 'finalizado',
@@ -60,7 +60,6 @@ const ACCIONES = {
     valorCheck: 'solucionado',
     entradaTipo: 'solucion',
     comentarioRequerido: false,
-    evento: 'caso_solucionado',
   },
   cerrar_caso: {
     tipoColumna: 'aprobacion',
@@ -70,12 +69,7 @@ const ACCIONES = {
     valorCheck: 'aprobado',
     entradaTipo: 'cierre',
     comentarioRequerido: false,
-    evento: 'caso_cerrado',
   },
-  // Reabrir no tiene un evento propio en el PRD (sección 7.2 lista solo 4 eventos de
-  // criterio + prueba_reportada) — reutiliza criterio_rechazado porque ambas acciones
-  // dejan el criterio en el mismo estado RECHAZADO y el interesado externo (Dev/QA) quiere
-  // la misma notificación: "esto necesita atención de nuevo".
   reabrir: {
     tipoColumna: 'aprobacion',
     capacidad: 'aprobar_rechazar',
@@ -84,7 +78,6 @@ const ACCIONES = {
     valorCheck: 'rechazado',
     entradaTipo: 'reapertura',
     comentarioRequerido: false,
-    evento: 'criterio_rechazado',
   },
 };
 
@@ -305,18 +298,6 @@ async function aplicarCheck(tenantId, criterioId, auth, { columna, accion, comen
       auth.usuarioId,
       `Criterio reabierto vía columna "${columna}"`,
     );
-  }
-
-  // Fire-and-forget: el disparo de webhooks (con sus reintentos, hasta ~30s) nunca debe
-  // bloquear la respuesta al usuario que hizo el check (PRD sección 7.4). notificarEventoCriterio
-  // ya captura sus propios errores por webhook; el .catch acá es solo una red de seguridad
-  // por si el propio armado del contexto (queries a Historia/Modulo/Usuario) fallara.
-  if (config.evento) {
-    webhookService
-      .notificarEventoCriterio(tenantId, proyecto, criterioActualizado, config.evento, { comentario, auth })
-      .catch((err) => {
-        console.error(`[webhooks] no se pudo notificar "${config.evento}" para el criterio ${criterioId}:`, err.message);
-      });
   }
 
   return criterioPublico(criterioActualizado);

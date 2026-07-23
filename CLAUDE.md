@@ -205,7 +205,10 @@ Variables de entorno mínimas: `MONGODB_URI`, `JWT_SECRET`, `UPLOADS_PATH`, `POR
 `MAX_VIDEO_MB=100`. Opcionales (no forman parte del contrato mínimo del PRD, tienen default): `WEBHOOK_TIMEOUT_MS`
 (default `10000`) y `WEBHOOK_REINTENTOS_MS` (lista separada por comas, default `5000,15000`) — permiten
 acortar el timeout/reintentos de `webhookDisparo.service.js` en tests sin tocar el comportamiento por
-defecto en producción.
+defecto en producción. `JWT_EXPIRES_IN` (default `8h`, formato aceptado por `jsonwebtoken`) — antes
+hardcodeado en `token.service.js`. `APP_BASE_URL` (default `http://localhost:5173`) — origen del
+frontend, usado por `webhookService.reportarHistoria()` para armar el deep link `url_hu` a una HU
+concreta; nunca se infiere de un header de request.
 
 ## Reglas de negocio no obvias (críticas para no romper al implementar)
 
@@ -339,8 +342,7 @@ defecto en producción.
   SIEMPRE de `auth.tenantId` (nunca de la URL) y además reverifica que el usuario tenga acceso al proyecto
   dueño del reporte que referencia esa evidencia — no alcanza con que el archivo sea del mismo tenant.
 - **Webhooks:** CRUD a nivel de proyecto (requiere `esAdmin: true`, ruta `/proyectos/:id/webhooks`);
-  proveedor `google_chat` (`cardsV2` mínimo: título + campos clave, sin plantillas complejas) o `generico`
-  (POST JSON plano con el contexto tal cual, ver payload estándar en PRD sección 7.4). Envío con timeout de
+  proveedor `google_chat` o `generico` (POST JSON plano con el contexto tal cual). Envío con timeout de
   10 s y 2 reintentos (5 s y 15 s de espera) vía `services/webhookDisparo.service.js`, **nunca esperado por
   el llamador** (fire-and-forget) para no bloquear la operación del usuario si falla; el resultado de cada
   intento se registra en log (`console.log`/`console.error`), nunca se propaga como error HTTP al usuario.
@@ -348,6 +350,41 @@ defecto en producción.
   query, no hay envío "fallido" que loguear en ese caso). `validarUrl()` protege contra SSRF: resuelve el
   host por DNS y rechaza loopback, rangos privados y link-local (incluida metadata de nube) además de
   formato/protocolo — ver "Seguridad: patrones obligatorios" más abajo.
+- **Decisión post-MVP (2026-07-22): se eliminó el disparo automático de webhook por cada acción de
+  criterio** (antes `aprobar`/`rechazar`/`solucionar`/`cerrar_caso`/`reabrir` disparaban
+  `criterio_aprobado`/`criterio_rechazado`/`caso_solucionado`/`caso_cerrado` uno por uno — demasiado
+  ruidoso: un check individual ya no es lo que le interesa a un webhook externo). `ACCIONES` en
+  `services/criterio.service.js` ya no tiene campo `evento` ni dispara nada; `aplicarCheck()` ya no llama a
+  `webhookService`. En su lugar, **"Enviar a webhook" es un botón manual por Historia de Usuario**
+  (`EnviarWebhookHistoria` en `pages/ModuloDetallePage.jsx`, visible a cualquier miembro — el backend
+  403-ea si el rol no tiene `aprobar_rechazar`, mismo patrón que "Reportar prueba"). `POST
+  /historias/:historiaId/reportar-webhook` (`webhookService.reportarHistoria()`) evalúa TODOS los
+  criterios activos de la HU en ese momento: `resultado` es `aprobada` solo si el 100% está `APROBADO`,
+  si no `rechazada`; `criterios_rechazados` lista solo los criterios en estado `RECHAZADO` con el
+  comentario de su entrada `rechazo` más reciente (mismo criterio que `reportarPrueba()`). Una HU sin
+  ningún criterio de aceptación responde 400 (no hay nada que evaluar, evita un resultado "aprobada"
+  vacuamente cierto). Dispara el evento `hu_reportada` (reemplaza a los 4 eventos de criterio en
+  `config/eventosWebhook.js`, que ahora solo tiene `hu_reportada` y `prueba_reportada`) de forma
+  fire-and-forget, igual que el resto. El payload incluye `url_hu`: un deep link
+  `{APP_BASE_URL}/modulos/:moduloId?hu=:historiaId` armado en el propio backend (nunca desde el cliente) —
+  `ModuloDetallePage.jsx` lee el query param `hu` con `useSearchParams`, auto-expande esa
+  `HistoriaItem` y hace `scrollIntoView` con un resaltado visual breve (`ring-blue-200`). Nota: el ejemplo
+  de URL mencionado al definir esta feature incluía un `:proyectoId` en el path
+  (`/proyectos/:proyectoId/modulos/:moduloId`), pero la app no tiene esa ruta — se usó la ruta real
+  existente (`/modulos/:moduloId`), que ya identifica unívocamente al módulo sin necesitar el proyecto en
+  el path. Formato Google Chat específico para `hu_reportada` (`formatearGoogleChatHuReportada()` en
+  `webhookDisparo.service.js`, distinto del genérico usado por `prueba_reportada`): card compacta con
+  encabezado `[Proyecto] · HU-N: título`, una línea de estado con emoji (✅/❌), la lista breve de
+  rechazados solo si corresponde, y un botón `cardsV2` (`buttonList`/`openLink`) "Abrir HU" apuntando a
+  `url_hu` — nada de los "campos clave" genéricos que sí usa `prueba_reportada`.
+- **Hallazgo de verificación manual (2026-07-23) con un webhook real de Google Chat:** el botón "Abrir
+  HU" de la card reescribe el link a `https://` al clickearlo, sin importar el esquema con el que se armó
+  `url_hu`. En desarrollo local eso rompía el link porque Vite solo servía HTTP —
+  `https://localhost:5173` no conectaba en absoluto. Solución: `@vitejs/plugin-basic-ssl` en
+  `frontend/vite.config.js` (certificado autofirmado, sin configuración manual de llaves) para que el
+  frontend de dev también responda en HTTPS, y `APP_BASE_URL=https://localhost:5173` en local (ver nota
+  en `.env.example`). En producción, con el frontend en un dominio real con HTTPS, esto no requiere
+  ningún ajuste adicional.
 - **"Reportar prueba"** (`POST /proyectos/:id/reportar-prueba`) es una acción manual (no automática)
   disponible para roles con `aprobar_rechazar` (no `esAdmin`): selecciona módulo + HU probadas (validado
   que las HU pertenezcan a ese módulo, no solo al proyecto), resultado `exitosa`/`con_errores`, comentario
@@ -415,6 +452,43 @@ implementado — replicar, no reinventar:
 - **Login siempre ejecuta `bcrypt.compare`, exista o no el usuario/tenant**, contra un hash dummy
   (`DUMMY_HASH` en `services/auth.service.js`) cuando no existen, para que el tiempo de respuesta no
   permita distinguir por timing "no existe" de "password incorrecta".
+- **Decisión post-MVP (depuración de persistencia/autenticación, 2026-07-21): el email de `usuarios` es
+  único a nivel GLOBAL, no por tenant.** `Usuario.email` tiene índice `unique` propio (reemplaza al
+  compuesto `{tenantId,email}` original) y `login({email, password})` resuelve el tenant a partir del
+  usuario encontrado por email — **ya no recibe `tenantSlug`** (se quitó el campo "Organización" del
+  formulario de login). Motivo: el modelo anterior permitía que la misma persona registrara varios
+  tenants con el mismo email (confirmado en producción: un usuario real terminó con 3 tenants casi
+  idénticos tras reintentar el registro), y no había forma de saber a qué tenant loguearse sin recordar
+  el slug exacto. Con email único global, cada persona pertenece a un único tenant. Consecuencias: (1)
+  `registrarTenant()` y `usuarioService.crear()` validan el email contra **toda** la colección `usuarios`
+  (no filtrado por tenantId) y responden `409` si ya existe — antes era `400` y estaba scopeado al
+  tenant; (2) `registrarTenant()` también responde `409` si el nombre/slug del tenant ya existe, en vez
+  de generar un slug con sufijo numérico (`generarSlugUnico` se eliminó); (3) `server.js` llama
+  `Usuario.syncIndexes()` al arrancar para no depender solo del autoIndex implícito al corregir el
+  índice en una base ya existente. El seed (`backend/src/seed.js`) se simplificó a sembrar únicamente el
+  tenant demo con un solo admin (`admin@demo.test` / `Admin123*`) — ya no crea Dev/QA ni proyecto de
+  ejemplo; ese admin es la cuenta base para autogestionar el resto de las pruebas desde la UI. Cualquier
+  entidad futura con una noción de "identidad única de login" debe seguir este mismo patrón (único
+  global, nunca por tenant).
+- **Componente `PasswordInput`** (`frontend/src/components/PasswordInput.jsx`): input de contraseña
+  reutilizable con ícono de mostrar/ocultar (SVG inline, sin librería de íconos nueva), estado de
+  visibilidad independiente por instancia. Usado en login, registro de tenant y alta de usuarios — todo
+  campo de contraseña nuevo debe reutilizar este componente en vez de un `<input type="password">` suelto.
+- **Decisión post-MVP (depuración de sesión, 2026-07-22): expiración de JWT configurable
+  (`JWT_EXPIRES_IN`, default `8h`) + manejo explícito de sesión vencida en el frontend, sin refresh
+  tokens** (siguen en Fase 2 — el objetivo es un re-login limpio, no un estado a medias). Tres mecanismos
+  en `frontend/src/api/client.js` + `context/AuthContext.jsx`: (1) `registrarManejador401()` es un
+  interceptor global — cualquier `apiFetch`/`apiFetchBlob` autenticado (`auth !== false`) que reciba 401
+  limpia el token/sesión y marca `sesionExpirada: true`, que `LoginPage` lee para mostrar "Tu sesión
+  expiró, inicia de nuevo"; nunca se dispara para login/registro (`auth:false`), donde un 401 es
+  simplemente credenciales inválidas. (2) Al montar `AuthProvider`, si hay un token guardado con `exp` ya
+  vencido (decodificado sin validar firma, solo para leer `exp` — la validación real la hace el backend),
+  se limpia **durante el render** (no en un `useEffect`) precisamente para que ningún componente hijo
+  llegue a montar un efecto que dispare una llamada condenada al 401 antes de que la sesión se invalide —
+  ver el comentario en `AuthProvider` sobre por qué el orden de efectos hijo-antes-que-padre de React haría
+  fallar un `useEffect` para este caso puntual. (3) `logout()`/`aplicarSesion()` resetean `sesionExpirada`
+  para que no reaparezca el aviso en un login posterior. Cualquier futura pantalla que dependa de sesión
+  debe seguir usando `apiFetch`/`apiFetchBlob` (nunca `fetch` crudo) para no perderse este interceptor.
 - **Regla de "último admin":** ninguna operación puede dejar un tenant sin ningún usuario con
   `esAdmin: true` y `activo: true` simultáneamente. Cubre eliminar, desactivar (`activo:false`) y degradar
   (`esAdmin:false`), incluso cuando el admin se apunta a sí mismo. Ver

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../api/client';
+import PasswordInput from '../components/PasswordInput';
 
 function UsuariosPage() {
   const [usuarios, setUsuarios] = useState([]);
@@ -99,13 +100,12 @@ function UsuariosPage() {
           onChange={actualizarCampo('email')}
           required
         />
-        <input
-          type="password"
+        <PasswordInput
           minLength={8}
-          className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
           placeholder="Contraseña (mín. 8 caracteres)"
           value={form.password}
           onChange={actualizarCampo('password')}
+          autoComplete="new-password"
           required
         />
         <label className="flex items-center gap-2 text-sm text-gray-600">

@@ -40,4 +40,12 @@ async function reportarPrueba(req, res, next) {
   }
 }
 
-module.exports = { listar, crear, actualizar, eliminar, reportarPrueba };
+async function reportarHistoria(req, res, next) {
+  try {
+    res.json(await webhookService.reportarHistoria(req.auth.tenantId, req.params.historiaId, req.auth));
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { listar, crear, actualizar, eliminar, reportarPrueba, reportarHistoria };

@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { apiFetch, apiFetchBlob } from '../api/client';
 import { useProyecto } from '../context/ProyectoContext';
 
@@ -316,10 +316,48 @@ function CriterioRow({ criterio, columnasCheck, onCambio }) {
   );
 }
 
-function HistoriaItem({ historia, columnasCheck }) {
-  const [expandida, setExpandida] = useState(false);
+function EnviarWebhookHistoria({ historiaId }) {
+  const [enviando, setEnviando] = useState(false);
+  const [mensaje, setMensaje] = useState('');
+  const [error, setError] = useState('');
+
+  async function enviar() {
+    setError('');
+    setMensaje('');
+    setEnviando(true);
+    try {
+      const resultado = await apiFetch(`/historias/${historiaId}/reportar-webhook`, { method: 'POST' });
+      const resumen = resultado.resultado === 'aprobada' ? 'Aprobada ✅' : 'Rechazada ❌';
+      setMensaje(`${resumen} — ${resultado.webhooksNotificados} webhook(s) notificados`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <button
+        type="button"
+        onClick={enviar}
+        disabled={enviando}
+        className="rounded border border-gray-300 bg-white px-2 py-1 text-xs hover:bg-gray-50 disabled:opacity-50"
+      >
+        {enviando ? 'Enviando...' : 'Enviar a webhook'}
+      </button>
+      {mensaje && <span className="text-xs text-green-700">{mensaje}</span>}
+      {error && <span className="text-xs text-red-700">{error}</span>}
+    </div>
+  );
+}
+
+function HistoriaItem({ historia, columnasCheck, historiaEnfocada }) {
+  const enfocada = historiaEnfocada === historia.id;
+  const [expandida, setExpandida] = useState(enfocada);
   const [criterios, setCriterios] = useState([]);
   const [error, setError] = useState('');
+  const elementoRef = useRef(null);
 
   async function cargarCriterios() {
     const data = await apiFetch(`/historias/${historia.id}/criterios`);
@@ -331,8 +369,19 @@ function HistoriaItem({ historia, columnasCheck }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expandida]);
 
+  // Deep link desde un webhook ("Abrir HU"): si esta es la HU indicada por ?hu=... en la
+  // URL, se expande sola (arriba, en el estado inicial) y además se desplaza a la vista y se
+  // resalta brevemente, para que no quede fuera de pantalla dentro de un módulo con muchas HU.
+  useEffect(() => {
+    if (enfocada) elementoRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
-    <li className="rounded border border-gray-100">
+    <li
+      ref={elementoRef}
+      className={`rounded border ${enfocada ? 'border-blue-400 ring-2 ring-blue-200' : 'border-gray-100'}`}
+    >
       <button
         type="button"
         onClick={() => setExpandida((v) => !v)}
@@ -346,6 +395,7 @@ function HistoriaItem({ historia, columnasCheck }) {
       {expandida && (
         <div className="space-y-2 border-t border-gray-100 p-3">
           {error && <p className="text-sm text-red-700">{error}</p>}
+          <EnviarWebhookHistoria historiaId={historia.id} />
           {criterios.map((c) => (
             <CriterioRow key={c.id} criterio={c} columnasCheck={columnasCheck} onCambio={cargarCriterios} />
           ))}
@@ -357,7 +407,7 @@ function HistoriaItem({ historia, columnasCheck }) {
   );
 }
 
-function RequerimientoCard({ requerimiento, onCambio, columnasCheck }) {
+function RequerimientoCard({ requerimiento, onCambio, columnasCheck, historiaEnfocada }) {
   const [historias, setHistorias] = useState([]);
   const [error, setError] = useState('');
 
@@ -398,7 +448,7 @@ function RequerimientoCard({ requerimiento, onCambio, columnasCheck }) {
 
       <ul className="mt-3 space-y-1">
         {historias.map((h) => (
-          <HistoriaItem key={h.id} historia={h} columnasCheck={columnasCheck} />
+          <HistoriaItem key={h.id} historia={h} columnasCheck={columnasCheck} historiaEnfocada={historiaEnfocada} />
         ))}
         {historias.length === 0 && <li className="text-sm text-gray-400">Sin historias de usuario todavía.</li>}
       </ul>
@@ -443,6 +493,8 @@ function NuevaHistoriaForm({ requerimientoId, onCreada }) {
 
 function ModuloDetallePage() {
   const { moduloId } = useParams();
+  const [searchParams] = useSearchParams();
+  const historiaEnfocada = searchParams.get('hu');
   const { proyectoActual } = useProyecto();
   const [requerimientos, setRequerimientos] = useState([]);
   const [form, setForm] = useState({ titulo: '', descripcionResumida: '' });
@@ -483,7 +535,13 @@ function ModuloDetallePage() {
 
       <div className="space-y-4">
         {requerimientos.map((r) => (
-          <RequerimientoCard key={r.id} requerimiento={r} onCambio={cargar} columnasCheck={columnasCheck} />
+          <RequerimientoCard
+            key={r.id}
+            requerimiento={r}
+            onCambio={cargar}
+            columnasCheck={columnasCheck}
+            historiaEnfocada={historiaEnfocada}
+          />
         ))}
         {requerimientos.length === 0 && <p className="text-gray-400">Sin requerimientos todavía.</p>}
       </div>

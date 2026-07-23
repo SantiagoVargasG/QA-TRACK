@@ -116,7 +116,7 @@ describe('webhooks: CRUD, disparo por evento, reintentos y reportar-prueba', () 
         nombre: 'Webhook de prueba',
         url: URL_PUBLICA_VALIDA,
         proveedor: 'generico',
-        eventos: ['criterio_rechazado'],
+        eventos: ['hu_reportada'],
         ...overrides,
       });
     return resp;
@@ -135,7 +135,7 @@ describe('webhooks: CRUD, disparo por evento, reintentos y reportar-prueba', () 
       nombre: 'Webhook de prueba (directo)',
       url: mockUrl,
       proveedor: 'generico',
-      eventos: ['criterio_rechazado'],
+      eventos: ['hu_reportada'],
       activo: true,
       ...overrides,
     });
@@ -172,12 +172,12 @@ describe('webhooks: CRUD, disparo por evento, reintentos y reportar-prueba', () 
       const sinAdmin = await request(app)
         .post(`/api/proyectos/${proyectoId}/webhooks`)
         .set('Authorization', `Bearer ${base.tokens.dev}`)
-        .send({ nombre: 'X', url: mockUrl, proveedor: 'generico', eventos: ['criterio_aprobado'] });
+        .send({ nombre: 'X', url: mockUrl, proveedor: 'generico', eventos: ['hu_reportada'] });
       assert.equal(sinAdmin.status, 403);
 
       const sinToken = await request(app)
         .post(`/api/proyectos/${proyectoId}/webhooks`)
-        .send({ nombre: 'X', url: mockUrl, proveedor: 'generico', eventos: ['criterio_aprobado'] });
+        .send({ nombre: 'X', url: mockUrl, proveedor: 'generico', eventos: ['hu_reportada'] });
       assert.equal(sinToken.status, 401);
 
       const resp = await crearWebhook();
@@ -190,25 +190,25 @@ describe('webhooks: CRUD, disparo por evento, reintentos y reportar-prueba', () 
       const sinNombre = await request(app)
         .post(`/api/proyectos/${proyectoId}/webhooks`)
         .set('Authorization', `Bearer ${base.tokens.admin}`)
-        .send({ url: mockUrl, proveedor: 'generico', eventos: ['criterio_aprobado'] });
+        .send({ url: mockUrl, proveedor: 'generico', eventos: ['hu_reportada'] });
       assert.equal(sinNombre.status, 400);
 
       const urlInvalida = await request(app)
         .post(`/api/proyectos/${proyectoId}/webhooks`)
         .set('Authorization', `Bearer ${base.tokens.admin}`)
-        .send({ nombre: 'X', url: 'no-es-una-url', proveedor: 'generico', eventos: ['criterio_aprobado'] });
+        .send({ nombre: 'X', url: 'no-es-una-url', proveedor: 'generico', eventos: ['hu_reportada'] });
       assert.equal(urlInvalida.status, 400);
 
       const protocoloInvalido = await request(app)
         .post(`/api/proyectos/${proyectoId}/webhooks`)
         .set('Authorization', `Bearer ${base.tokens.admin}`)
-        .send({ nombre: 'X', url: 'ftp://ejemplo.com', proveedor: 'generico', eventos: ['criterio_aprobado'] });
+        .send({ nombre: 'X', url: 'ftp://ejemplo.com', proveedor: 'generico', eventos: ['hu_reportada'] });
       assert.equal(protocoloInvalido.status, 400);
 
       const proveedorInvalido = await request(app)
         .post(`/api/proyectos/${proyectoId}/webhooks`)
         .set('Authorization', `Bearer ${base.tokens.admin}`)
-        .send({ nombre: 'X', url: URL_PUBLICA_VALIDA, proveedor: 'slack', eventos: ['criterio_aprobado'] });
+        .send({ nombre: 'X', url: URL_PUBLICA_VALIDA, proveedor: 'slack', eventos: ['hu_reportada'] });
       assert.equal(proveedorInvalido.status, 400);
 
       const sinEventos = await request(app)
@@ -241,14 +241,14 @@ describe('webhooks: CRUD, disparo por evento, reintentos y reportar-prueba', () 
         const resp = await request(app)
           .post(`/api/proyectos/${proyectoId}/webhooks`)
           .set('Authorization', `Bearer ${base.tokens.admin}`)
-          .send({ nombre: 'Bloqueado', url, proveedor: 'generico', eventos: ['criterio_aprobado'] });
+          .send({ nombre: 'Bloqueado', url, proveedor: 'generico', eventos: ['hu_reportada'] });
         assert.equal(resp.status, 400, `${nombreCaso} (${url}) debería rechazarse con 400, obtuve ${resp.status}`);
       }
 
       const conIpPublica = await request(app)
         .post(`/api/proyectos/${proyectoId}/webhooks`)
         .set('Authorization', `Bearer ${base.tokens.admin}`)
-        .send({ nombre: 'Público', url: URL_PUBLICA_VALIDA, proveedor: 'generico', eventos: ['criterio_aprobado'] });
+        .send({ nombre: 'Público', url: URL_PUBLICA_VALIDA, proveedor: 'generico', eventos: ['hu_reportada'] });
       assert.equal(conIpPublica.status, 201, 'una IP pública real no debe bloquearse por el guard de SSRF');
     });
 
@@ -299,86 +299,202 @@ describe('webhooks: CRUD, disparo por evento, reintentos y reportar-prueba', () 
     });
   });
 
-  describe('disparo de eventos', () => {
-    it('rechazar un criterio dispara "criterio_rechazado" al webhook suscrito (proveedor genérico)', async () => {
-      await crearWebhookDirecto({ eventos: ['criterio_rechazado'] });
+  describe('acciones de criterio ya NO disparan webhooks automáticamente', () => {
+    it('aprobar/rechazar/solucionar/cerrar_caso/reabrir un criterio no generan ninguna entrega', async () => {
+      await crearWebhookDirecto({ eventos: ['hu_reportada'] });
       const { criterioId } = await crearHistoriaConCriterio();
       await finalizar(criterioId);
-
-      const resp = await rechazar(criterioId, 'Falta validar el email');
-      assert.equal(resp.status, 200);
-
-      await esperarHasta(() => mock.requests.length >= 1);
-      assert.equal(mock.requests.length, 1);
-      const payload = mock.requests[0].body;
-      assert.equal(payload.evento, 'criterio_rechazado');
-      assert.equal(payload.proyecto, 'Proyecto Demo');
-      assert.equal(payload.modulo, 'Catálogo');
-      assert.match(payload.historia, /Como QA quiero verificar/);
-      assert.equal(payload.comentario, 'Falta validar el email');
-      assert.ok(payload.autor);
-      assert.ok(payload.fecha);
-    });
-
-    it('un webhook con proveedor google_chat recibe un cardsV2 en vez del payload plano', async () => {
-      await crearWebhookDirecto({ eventos: ['criterio_rechazado'], proveedor: 'google_chat' });
-      const { criterioId } = await crearHistoriaConCriterio();
-      await finalizar(criterioId);
-      await rechazar(criterioId, 'Ver formato Google Chat');
-
-      await esperarHasta(() => mock.requests.length >= 1);
-      const payload = mock.requests[0].body;
-      assert.ok(Array.isArray(payload.cardsV2));
-      assert.ok(payload.cardsV2[0].card.header.title);
-    });
-
-    it('un webhook desactivado no recibe notificaciones', async () => {
-      await crearWebhookDirecto({ eventos: ['criterio_rechazado'], activo: false });
-      const { criterioId } = await crearHistoriaConCriterio();
-      await finalizar(criterioId);
-      await rechazar(criterioId);
+      await rechazar(criterioId, 'No debería disparar nada');
+      await request(app)
+        .post(`/api/criterios/${criterioId}/check`)
+        .set('Authorization', `Bearer ${base.tokens.dev}`)
+        .send({ columna: 'Desarrollo', accion: 'solucionar' });
+      await request(app)
+        .post(`/api/criterios/${criterioId}/check`)
+        .set('Authorization', `Bearer ${base.tokens.qa}`)
+        .send({ columna: 'QA', accion: 'cerrar_caso' });
+      await request(app)
+        .post(`/api/criterios/${criterioId}/check`)
+        .set('Authorization', `Bearer ${base.tokens.qa}`)
+        .send({ columna: 'QA', accion: 'reabrir' });
 
       await new Promise((resolve) => setTimeout(resolve, 300));
-      assert.equal(mock.requests.length, 0);
+      assert.equal(mock.requests.length, 0, 'ninguna acción de criterio debe disparar un webhook por sí sola');
     });
+  });
 
-    it('un webhook no suscrito al evento disparado no recibe notificaciones', async () => {
-      await crearWebhookDirecto({ eventos: ['caso_cerrado'] });
-      const { criterioId } = await crearHistoriaConCriterio();
-      await finalizar(criterioId);
-      await rechazar(criterioId);
-
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      assert.equal(mock.requests.length, 0);
-    });
-
-    it('aprobar (camino feliz) dispara "criterio_aprobado"; reabrir un CA aprobado dispara "criterio_rechazado"', async () => {
-      await crearWebhookDirecto({ eventos: ['criterio_aprobado', 'criterio_rechazado'] });
-      const { criterioId } = await crearHistoriaConCriterio();
+  describe('reportar-webhook por Historia de Usuario (botón manual)', () => {
+    it('requiere capacidad aprobar_rechazar (403 para Dev, 200 para QA)', async () => {
+      const { historiaId, criterioId } = await crearHistoriaConCriterio('HU para botón webhook');
       await finalizar(criterioId);
       await request(app)
         .post(`/api/criterios/${criterioId}/check`)
         .set('Authorization', `Bearer ${base.tokens.qa}`)
         .send({ columna: 'QA', accion: 'aprobar' });
 
-      await esperarHasta(() => mock.requests.length >= 1);
-      assert.equal(mock.requests[0].body.evento, 'criterio_aprobado');
+      const sinCapacidad = await request(app)
+        .post(`/api/historias/${historiaId}/reportar-webhook`)
+        .set('Authorization', `Bearer ${base.tokens.dev}`);
+      assert.equal(sinCapacidad.status, 403);
 
+      const conCapacidad = await request(app)
+        .post(`/api/historias/${historiaId}/reportar-webhook`)
+        .set('Authorization', `Bearer ${base.tokens.qa}`);
+      assert.equal(conCapacidad.status, 200);
+    });
+
+    it('una HU sin criterios de aceptación -> 400', async () => {
+      const historia = await request(app)
+        .post(`/api/requerimientos/${requerimientoId}/historias`)
+        .set('Authorization', `Bearer ${base.tokens.admin}`)
+        .send({ texto: 'HU sin criterios' });
+
+      const resp = await request(app)
+        .post(`/api/historias/${historia.body.id}/reportar-webhook`)
+        .set('Authorization', `Bearer ${base.tokens.qa}`);
+      assert.equal(resp.status, 400);
+    });
+
+    it('sin token -> 401; historiaId malformado -> 400; cross-tenant -> 404', async () => {
+      const { historiaId } = await crearHistoriaConCriterio('HU seguridad');
+
+      const sinToken = await request(app).post(`/api/historias/${historiaId}/reportar-webhook`);
+      assert.equal(sinToken.status, 401);
+
+      const malformado = await request(app)
+        .post('/api/historias/no-es-un-objectid/reportar-webhook')
+        .set('Authorization', `Bearer ${base.tokens.qa}`);
+      assert.equal(malformado.status, 400);
+
+      const regB = await registrarTenant(app, { nombreTenant: 'Tenant Webhooks C', email: 'admin@webhooksc.com' });
+      const cruzado = await request(app)
+        .post(`/api/historias/${historiaId}/reportar-webhook`)
+        .set('Authorization', `Bearer ${regB.body.token}`);
+      assert.equal(cruzado.status, 404);
+    });
+
+    it('con todos los criterios APROBADOS: resultado "aprobada", sin lista de rechazados, dispara hu_reportada', async () => {
+      await crearWebhookDirecto({ eventos: ['hu_reportada'] });
+      const { historiaId, criterioId } = await crearHistoriaConCriterio('Como QA quiero verificar');
+      await finalizar(criterioId);
       await request(app)
         .post(`/api/criterios/${criterioId}/check`)
         .set('Authorization', `Bearer ${base.tokens.qa}`)
-        .send({ columna: 'QA', accion: 'reabrir' });
+        .send({ columna: 'QA', accion: 'aprobar' });
 
-      await esperarHasta(() => mock.requests.length >= 2);
-      assert.equal(mock.requests[1].body.evento, 'criterio_rechazado');
+      const resp = await request(app)
+        .post(`/api/historias/${historiaId}/reportar-webhook`)
+        .set('Authorization', `Bearer ${base.tokens.qa}`);
+      assert.equal(resp.status, 200);
+      assert.equal(resp.body.evento, 'hu_reportada');
+      assert.equal(resp.body.resultado, 'aprobada');
+      assert.deepEqual(resp.body.criterios_rechazados, []);
+      assert.equal(resp.body.proyecto, 'Proyecto Demo');
+      assert.equal(resp.body.modulo, 'Catálogo');
+      assert.match(resp.body.hu, /Como QA quiero verificar/);
+      assert.match(resp.body.url_hu, new RegExp(`/modulos/${moduloId}\\?hu=${historiaId}$`));
+      assert.equal(resp.body.webhooksNotificados, 1);
+
+      await esperarHasta(() => mock.requests.length >= 1);
+      const payload = mock.requests[0].body;
+      assert.equal(payload.evento, 'hu_reportada');
+      assert.equal(payload.resultado, 'aprobada');
+    });
+
+    it('con un criterio RECHAZADO: resultado "rechazada" con el comentario más reciente de ese criterio', async () => {
+      await crearWebhookDirecto({ eventos: ['hu_reportada'] });
+      const { historiaId, criterioId } = await crearHistoriaConCriterio('HU con rechazo para reportar');
+      await finalizar(criterioId);
+      await rechazar(criterioId, 'Primer comentario');
+      await request(app)
+        .post(`/api/criterios/${criterioId}/check`)
+        .set('Authorization', `Bearer ${base.tokens.dev}`)
+        .send({ columna: 'Desarrollo', accion: 'solucionar' });
+      await rechazar(criterioId, 'Comentario más reciente', base.tokens.qa);
+
+      const resp = await request(app)
+        .post(`/api/historias/${historiaId}/reportar-webhook`)
+        .set('Authorization', `Bearer ${base.tokens.qa}`);
+      assert.equal(resp.status, 200);
+      assert.equal(resp.body.resultado, 'rechazada');
+      assert.equal(resp.body.criterios_rechazados.length, 1);
+      assert.equal(resp.body.criterios_rechazados[0].comentario, 'Comentario más reciente');
+
+      await esperarHasta(() => mock.requests.length >= 1);
+      assert.deepEqual(mock.requests[0].body.criterios_rechazados, resp.body.criterios_rechazados);
+    });
+
+    it('proveedor google_chat: card compacta con estado, lista de rechazados y botón "Abrir HU"', async () => {
+      await crearWebhookDirecto({ eventos: ['hu_reportada'], proveedor: 'google_chat' });
+      const { historiaId, criterioId } = await crearHistoriaConCriterio('HU formato Google Chat');
+      await finalizar(criterioId);
+      await rechazar(criterioId, 'Falla visible en la card');
+
+      const resp = await request(app)
+        .post(`/api/historias/${historiaId}/reportar-webhook`)
+        .set('Authorization', `Bearer ${base.tokens.qa}`);
+      assert.equal(resp.status, 200);
+
+      await esperarHasta(() => mock.requests.length >= 1);
+      const card = mock.requests[0].body.cardsV2[0].card;
+      assert.match(card.header.title, /Proyecto Demo/);
+      assert.match(card.header.title, /HU-\d+/);
+      const widgets = card.sections[0].widgets;
+      assert.ok(widgets.some((w) => w.decoratedText?.text === '❌ Rechazada'));
+      assert.ok(widgets.some((w) => w.textParagraph?.text.includes('Falla visible en la card')));
+      const boton = widgets.find((w) => w.buttonList)?.buttonList.buttons[0];
+      assert.equal(boton.text, 'Abrir HU');
+      assert.equal(boton.onClick.openLink.url, resp.body.url_hu);
+    });
+
+    it('un webhook desactivado no recibe notificaciones', async () => {
+      await crearWebhookDirecto({ eventos: ['hu_reportada'], activo: false });
+      const { historiaId, criterioId } = await crearHistoriaConCriterio('HU webhook desactivado');
+      await finalizar(criterioId);
+      await request(app)
+        .post(`/api/criterios/${criterioId}/check`)
+        .set('Authorization', `Bearer ${base.tokens.qa}`)
+        .send({ columna: 'QA', accion: 'aprobar' });
+
+      const resp = await request(app)
+        .post(`/api/historias/${historiaId}/reportar-webhook`)
+        .set('Authorization', `Bearer ${base.tokens.qa}`);
+      assert.equal(resp.body.webhooksNotificados, 0);
+
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      assert.equal(mock.requests.length, 0);
+    });
+
+    it('un webhook no suscrito a hu_reportada no recibe notificaciones', async () => {
+      await crearWebhookDirecto({ eventos: ['prueba_reportada'] });
+      const { historiaId, criterioId } = await crearHistoriaConCriterio('HU webhook no suscrito');
+      await finalizar(criterioId);
+      await request(app)
+        .post(`/api/criterios/${criterioId}/check`)
+        .set('Authorization', `Bearer ${base.tokens.qa}`)
+        .send({ columna: 'QA', accion: 'aprobar' });
+
+      await request(app)
+        .post(`/api/historias/${historiaId}/reportar-webhook`)
+        .set('Authorization', `Bearer ${base.tokens.qa}`);
+
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      assert.equal(mock.requests.length, 0);
     });
 
     it('reintenta ante fallas transitorias y termina entregando (2 fallos + 1 éxito = 3 intentos)', async () => {
-      await crearWebhookDirecto({ eventos: ['criterio_rechazado'] });
+      await crearWebhookDirecto({ eventos: ['hu_reportada'] });
       mock.setComportamiento((n) => (n < 3 ? 500 : 200));
-      const { criterioId } = await crearHistoriaConCriterio();
+      const { historiaId, criterioId } = await crearHistoriaConCriterio('HU con reintentos');
       await finalizar(criterioId);
-      await rechazar(criterioId, 'Reintento');
+      await request(app)
+        .post(`/api/criterios/${criterioId}/check`)
+        .set('Authorization', `Bearer ${base.tokens.qa}`)
+        .send({ columna: 'QA', accion: 'aprobar' });
+
+      await request(app)
+        .post(`/api/historias/${historiaId}/reportar-webhook`)
+        .set('Authorization', `Bearer ${base.tokens.qa}`);
 
       await esperarHasta(() => mock.requests.length >= 3, { timeoutMs: 3000 });
       assert.equal(mock.requests.length, 3, 'debe haber reintentado hasta entregar en el 3er intento');

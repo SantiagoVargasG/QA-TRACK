@@ -12,8 +12,8 @@ async function registrarTenant(app, overrides = {}) {
   return request(app).post('/api/auth/registro-tenant').send(datos);
 }
 
-async function login(app, tenantSlug, email, password = 'password123') {
-  const resp = await request(app).post('/api/auth/login').send({ tenantSlug, email, password });
+async function login(app, email, password = 'password123') {
+  const resp = await request(app).post('/api/auth/login').send({ email, password });
   return resp.body.token;
 }
 
@@ -33,7 +33,6 @@ async function crearUsuario(app, token, overrides = {}) {
 async function crearTenantConEquipoBase(app) {
   const reg = await registrarTenant(app);
   const tokenAdmin = reg.body.token;
-  const tenantSlug = reg.body.tenant.slug;
   const tenantId = reg.body.tenant.id;
 
   const Rol = mongoose.model('Rol');
@@ -49,14 +48,13 @@ async function crearTenantConEquipoBase(app) {
     await crearUsuario(app, tokenAdmin, { nombre: 'Forastero', email: 'forastero@demo.com' })
   ).body;
 
-  const tokenDev = await login(app, tenantSlug, 'dev@demo.com');
-  const tokenQA = await login(app, tenantSlug, 'qa@demo.com');
-  const tokenLector = await login(app, tenantSlug, 'lector@demo.com');
-  const tokenForastero = await login(app, tenantSlug, 'forastero@demo.com');
+  const tokenDev = await login(app, 'dev@demo.com');
+  const tokenQA = await login(app, 'qa@demo.com');
+  const tokenLector = await login(app, 'lector@demo.com');
+  const tokenForastero = await login(app, 'forastero@demo.com');
 
   return {
     tenantId,
-    tenantSlug,
     tokenAdmin,
     roles: { dev: rolDev, qa: rolQA, lector: rolLector },
     usuarios: { admin: reg.body.usuario, dev, qa, lector, forastero },

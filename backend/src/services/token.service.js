@@ -1,10 +1,10 @@
 const jwt = require('jsonwebtoken');
-const { jwtSecret } = require('../config/env');
+const { jwtSecret, jwtExpiresIn } = require('../config/env');
 
 const ALGORITMO = 'HS256';
 
 function firmarToken(payload) {
-  return jwt.sign(payload, jwtSecret, { expiresIn: '8h', algorithm: ALGORITMO });
+  return jwt.sign(payload, jwtSecret, { expiresIn: jwtExpiresIn, algorithm: ALGORITMO });
 }
 
 function verificarToken(token) {

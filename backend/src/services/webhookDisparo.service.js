@@ -7,10 +7,7 @@ const REINTENTOS_MS = (process.env.WEBHOOK_REINTENTOS_MS || '5000,15000')
   .map(Number);
 
 const TITULOS_EVENTO = {
-  criterio_aprobado: 'Criterio aprobado',
-  criterio_rechazado: 'Criterio rechazado',
-  caso_solucionado: 'Caso marcado como solucionado',
-  caso_cerrado: 'Caso cerrado',
+  hu_reportada: 'Historia reportada',
   prueba_reportada: 'Prueba reportada',
 };
 
@@ -23,10 +20,46 @@ function valorLegible(valor) {
   return String(valor);
 }
 
-// Formato mínimo pero válido de Google Chat: un mensaje de texto simple con un cardsV2
-// básico (título + campos clave), sin plantillas complejas (decisión tomada al planificar
-// el proyecto — ver CLAUDE.md).
+// Card compacta específica para hu_reportada (decisión post-MVP: nada de texto largo).
+// Encabezado "[Proyecto] · HU-N: título", una línea de estado con emoji, y — solo si está
+// rechazada — una lista breve de los criterios rechazados con su último comentario. El botón
+// "Abrir HU" linkea al deep link armado en webhookService.reportarHistoria (url_hu).
+function formatearGoogleChatHuReportada(contexto) {
+  const aprobada = contexto.resultado === 'aprobada';
+  const widgets = [{ decoratedText: { text: aprobada ? '✅ Aprobada' : '❌ Rechazada' } }];
+
+  if (!aprobada && contexto.criterios_rechazados?.length > 0) {
+    const texto = contexto.criterios_rechazados
+      .map((c) => `• ${c.criterio}${c.comentario ? `: ${c.comentario}` : ''}`)
+      .join('\n');
+    widgets.push({ textParagraph: { text: texto } });
+  }
+
+  if (contexto.url_hu) {
+    widgets.push({
+      buttonList: { buttons: [{ text: 'Abrir HU', onClick: { openLink: { url: contexto.url_hu } } }] },
+    });
+  }
+
+  return {
+    cardsV2: [
+      {
+        cardId: `hu_reportada-${Date.now()}`,
+        card: {
+          header: { title: `[${contexto.proyecto}] · ${contexto.hu}` },
+          sections: [{ widgets }],
+        },
+      },
+    ],
+  };
+}
+
+// Formato mínimo pero válido de Google Chat para el resto de los eventos (hoy solo
+// prueba_reportada): un cardsV2 básico (título + campos clave), sin plantillas complejas
+// (decisión tomada al planificar el proyecto — ver CLAUDE.md).
 function formatearGoogleChat(contexto) {
+  if (contexto.evento === 'hu_reportada') return formatearGoogleChatHuReportada(contexto);
+
   const widgets = Object.entries(contexto)
     .filter(([clave, valor]) => clave !== 'evento' && valor !== undefined && valor !== '')
     .map(([clave, valor]) => ({ decoratedText: { topLabel: clave, text: valorLegible(valor) } }));

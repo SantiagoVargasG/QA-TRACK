@@ -7,13 +7,11 @@ const { registrarTenant, crearUsuario, login } = require('./helpers/fixtures');
 describe('roles: CRUD, validación de capacidades y aislamiento de tenant', () => {
   let app;
   let tokenAdmin;
-  let tenantSlug;
 
   before(async () => {
     app = await entorno.iniciar();
     const reg = await registrarTenant(app, { nombreTenant: 'RolesTenant', email: 'admin@roles.com' });
     tokenAdmin = reg.body.token;
-    tenantSlug = reg.body.tenant.slug;
   });
 
   after(async () => {
@@ -25,7 +23,7 @@ describe('roles: CRUD, validación de capacidades y aislamiento de tenant', () =
     assert.equal(sinToken.status, 401);
 
     await crearUsuario(app, tokenAdmin, { email: 'noadmin@roles.com' });
-    const tokenNoAdmin = await login(app, tenantSlug, 'noadmin@roles.com');
+    const tokenNoAdmin = await login(app, 'noadmin@roles.com');
     const resp = await request(app).get('/api/roles').set('Authorization', `Bearer ${tokenNoAdmin}`);
     assert.equal(resp.status, 403);
   });

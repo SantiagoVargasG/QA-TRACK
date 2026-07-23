@@ -33,18 +33,6 @@ function tenantPublico(tenant) {
   return { id: tenant._id, nombre: tenant.nombre, slug: tenant.slug };
 }
 
-async function generarSlugUnico(nombre) {
-  const base = slugify(nombre) || 'tenant';
-  let slug = base;
-  let sufijo = 1;
-  // eslint-disable-next-line no-await-in-loop
-  while (await Tenant.exists({ slug })) {
-    sufijo += 1;
-    slug = `${base}-${sufijo}`;
-  }
-  return slug;
-}
-
 async function registrarTenant({ nombreTenant, nombreUsuario, email, password }) {
   if (!nombreTenant || !nombreUsuario || !email || !password) {
     throw new ApiError(400, 'nombreTenant, nombreUsuario, email y password son requeridos');
@@ -58,7 +46,15 @@ async function registrarTenant({ nombreTenant, nombreUsuario, email, password })
     throw new ApiError(400, 'La contraseña debe tener al menos 8 caracteres');
   }
 
-  const slug = await generarSlugUnico(nombreTenant);
+  // El email es único a nivel global (login lo resuelve sin pedir tenant), así que un
+  // registro nuevo no puede reutilizar un email ya asociado a otro tenant.
+  const emailExistente = await Usuario.findOne({ email: email.toLowerCase() });
+  if (emailExistente) throw new ApiError(409, 'Ya existe una cuenta con ese email');
+
+  const slug = slugify(nombreTenant) || 'tenant';
+  if (await Tenant.exists({ slug })) {
+    throw new ApiError(409, 'Ya existe una organización con ese nombre');
+  }
   const tenant = await Tenant.create({ nombre: nombreTenant, slug });
 
   await Rol.insertMany(
@@ -82,21 +78,20 @@ async function registrarTenant({ nombreTenant, nombreUsuario, email, password })
   return { token, tenant: tenantPublico(tenant), usuario: usuarioPublico(usuario) };
 }
 
-async function login({ tenantSlug, email, password }) {
-  if (!tenantSlug || !email || !password) {
-    throw new ApiError(400, 'tenantSlug, email y password son requeridos');
+async function login({ email, password }) {
+  if (!email || !password) {
+    throw new ApiError(400, 'email y password son requeridos');
   }
 
-  const tenant = await Tenant.findOne({ slug: tenantSlug.toLowerCase() });
-  const usuario = tenant
-    ? await Usuario.findOne({ tenantId: tenant._id, email: email.toLowerCase(), activo: true })
-    : null;
+  // El tenant se resuelve a partir del email (único global), no de un slug provisto aparte.
+  const usuario = await Usuario.findOne({ email: email.toLowerCase(), activo: true });
+  const tenant = usuario ? await Tenant.findById(usuario.tenantId) : null;
 
   // bcrypt.compare SIEMPRE se ejecuta (contra el hash real o el dummy), incluso si el
-  // tenant o el usuario no existen — ver DUMMY_HASH arriba.
+  // usuario o el tenant no existen — ver DUMMY_HASH arriba.
   const passwordValida = await bcrypt.compare(password, usuario ? usuario.passwordHash : DUMMY_HASH);
 
-  if (!tenant || !usuario || !passwordValida) {
+  if (!usuario || !tenant || !passwordValida) {
     throw new ApiError(401, 'Credenciales inválidas');
   }
 

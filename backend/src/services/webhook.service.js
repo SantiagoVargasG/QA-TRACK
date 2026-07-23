@@ -12,8 +12,9 @@ const EVENTOS_VALIDOS = require('../config/eventosWebhook');
 const PROVEEDORES_VALIDOS = require('../config/proveedoresWebhook');
 const { ApiError } = require('../middleware/errorHandler');
 const { validarLongitudMax, stringParaFiltro, booleanoOpcional } = require('../utils/validacion');
-const { verificarCapacidadEnProyecto, cargarProyectoConAcceso } = require('./acceso.service');
+const { verificarCapacidadEnProyecto, cargarProyectoConAcceso, cargarHistoriaConAcceso } = require('./acceso.service');
 const { enviarConReintentos } = require('./webhookDisparo.service');
+const { appBaseUrl } = require('../config/env');
 
 const RESULTADOS_PRUEBA_VALIDOS = ['exitosa', 'con_errores'];
 
@@ -192,41 +193,73 @@ async function eliminar(tenantId, proyectoId, webhookId) {
 
 // ---- Disparo de eventos ----
 
-// Dispara `evento` a todos los webhooks activos del proyecto suscritos a él. Sale rápido
-// (sin tocar Historia/Requerimiento/Modulo/Usuario) si no hay ningún webhook suscrito — la
-// mayoría de los checks de criterio no tienen webhooks configurados, y no tiene sentido
-// pagar ese costo en el camino común. Nunca lanza al llamador: cada envío se resuelve o
-// falla de forma independiente y se loguea, nunca bloquea la respuesta al usuario (se debe
-// invocar sin `await` desde el caller).
-async function notificarEventoCriterio(tenantId, proyecto, criterio, evento, { comentario, auth }) {
-  const webhooks = await Webhook.find({ tenantId, proyectoId: proyecto._id, activo: true, eventos: evento });
-  if (webhooks.length === 0) return;
+// POST /historias/:id/reportar-webhook: acción manual disponible para roles con
+// aprobar_rechazar (mismo criterio que reportar-prueba — no esAdmin, verificarCapacidadEnProyecto
+// resuelve el bypass). Reemplaza el disparo automático por cada check de criterio (demasiado
+// ruidoso): el resultado se calcula sobre TODOS los criterios activos de la historia en el
+// momento del envío, no sobre el que disparó la última acción.
+async function reportarHistoria(tenantId, historiaId, auth) {
+  const { historia, proyecto } = await cargarHistoriaConAcceso(tenantId, historiaId, auth);
+  await verificarCapacidadEnProyecto(proyecto, auth, 'aprobar_rechazar');
 
-  const historia = await Historia.findOne({ _id: criterio.historiaId, tenantId }).select('codigo texto requerimientoId');
-  const requerimiento = historia
-    ? await Requerimiento.findOne({ _id: historia.requerimientoId, tenantId }).select('moduloId')
+  const criterios = await Criterio.find({ tenantId, historiaId: historia._id, activo: true });
+  if (criterios.length === 0) {
+    throw new ApiError(400, 'La historia no tiene criterios de aceptación para reportar');
+  }
+
+  const todosAprobados = criterios.every((c) => c.estado === 'APROBADO');
+  const resultado = todosAprobados ? 'aprobada' : 'rechazada';
+
+  const criteriosRechazados = [];
+  if (!todosAprobados) {
+    const rechazados = criterios.filter((c) => c.estado === 'RECHAZADO');
+    // eslint-disable-next-line no-restricted-syntax
+    for (const criterio of rechazados) {
+      // eslint-disable-next-line no-await-in-loop
+      const reporte = await Reporte.findOne({ tenantId, criterioId: criterio._id }).sort({ createdAt: -1 });
+      const ultimoRechazo = reporte ? [...reporte.entradas].reverse().find((e) => e.tipo === 'rechazo') : null;
+      criteriosRechazados.push({ criterio: criterio.texto, comentario: ultimoRechazo?.comentario || '' });
+    }
+  }
+
+  const requerimiento = await Requerimiento.findOne({ _id: historia.requerimientoId, tenantId }).select('moduloId');
+  const modulo = requerimiento
+    ? await Modulo.findOne({ _id: requerimiento.moduloId, tenantId }).select('nombre')
     : null;
-  const modulo = requerimiento ? await Modulo.findOne({ _id: requerimiento.moduloId, tenantId }).select('nombre') : null;
-  const usuario = await Usuario.findOne({ _id: auth.usuarioId, tenantId }).select('nombre');
 
+  // Deep link a la HU exacta dentro del módulo (ver ModuloDetallePage.jsx, que enfoca la HU
+  // indicada por el query param `hu`). APP_BASE_URL nunca se infiere de un header de
+  // request — es una variable de entorno fija del servidor.
+  const urlHu = requerimiento ? `${appBaseUrl}/modulos/${requerimiento.moduloId}?hu=${historia._id}` : appBaseUrl;
+
+  const usuario = await Usuario.findOne({ _id: auth.usuarioId, tenantId }).select('nombre');
   const contexto = {
-    evento,
+    evento: 'hu_reportada',
     proyecto: proyecto.nombre,
     modulo: modulo?.nombre || '',
-    historia: historia ? `${historia.codigo}: ${historia.texto}` : '',
-    criterio: criterio.texto,
-    comentario: comentario || undefined,
+    hu: `${historia.codigo}: ${historia.texto}`,
+    resultado,
+    criterios_rechazados: criteriosRechazados,
+    url_hu: urlHu,
     autor: usuario?.nombre || '',
     fecha: new Date().toISOString(),
   };
 
-  await Promise.all(
-    webhooks.map((webhook) =>
-      enviarConReintentos(webhook, contexto).catch((err) => {
-        console.error(`[webhooks] notificarEventoCriterio: "${webhook.nombre}" falló:`, err.message);
-      }),
-    ),
-  );
+  const webhooks = await Webhook.find({
+    tenantId,
+    proyectoId: proyecto._id,
+    activo: true,
+    eventos: 'hu_reportada',
+  });
+  // Sin await, mismo motivo que reportar-prueba: la entrega (con reintentos, hasta ~30s por
+  // webhook) nunca debe bloquear la respuesta de este botón manual.
+  webhooks.forEach((webhook) => {
+    enviarConReintentos(webhook, contexto).catch((err) => {
+      console.error(`[webhooks] reportarHistoria: "${webhook.nombre}" falló:`, err.message);
+    });
+  });
+
+  return { ...contexto, webhooksNotificados: webhooks.length };
 }
 
 // POST /proyectos/:id/reportar-prueba (PRD sección 7.3): acción manual disponible para
@@ -331,4 +364,4 @@ async function reportarPrueba(tenantId, proyectoId, auth, { moduloId, historiaId
   return { ...contexto, webhooksNotificados: webhooks.length };
 }
 
-module.exports = { listar, crear, actualizar, eliminar, notificarEventoCriterio, reportarPrueba };
+module.exports = { listar, crear, actualizar, eliminar, reportarHistoria, reportarPrueba };

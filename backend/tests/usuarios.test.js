@@ -8,7 +8,6 @@ describe('usuarios: CRUD, permisos y aislamiento de tenant', () => {
   let app;
   let tokenAdminA;
   let tenantAId;
-  let tenantASlug;
   let tokenAdminB;
 
   before(async () => {
@@ -16,7 +15,6 @@ describe('usuarios: CRUD, permisos y aislamiento de tenant', () => {
     const regA = await registrarTenant(app, { nombreTenant: 'Tenant A', email: 'admin@a.com' });
     tokenAdminA = regA.body.token;
     tenantAId = regA.body.tenant.id;
-    tenantASlug = regA.body.tenant.slug;
 
     const regB = await registrarTenant(app, { nombreTenant: 'Tenant B', email: 'admin@b.com' });
     tokenAdminB = regB.body.token;
@@ -31,13 +29,13 @@ describe('usuarios: CRUD, permisos y aislamiento de tenant', () => {
     assert.equal(sinToken.status, 401);
 
     const noAdmin = await crearUsuario(app, tokenAdminA, { email: 'noadmin@a.com' });
-    const tokenNoAdmin = await login(app, tenantASlug, 'noadmin@a.com');
+    const tokenNoAdmin = await login(app, 'noadmin@a.com');
     const resp = await request(app).get('/api/usuarios').set('Authorization', `Bearer ${tokenNoAdmin}`);
     assert.equal(resp.status, 403);
     assert.equal(noAdmin.status, 201);
   });
 
-  it('crear usuario: valida email, longitud de password y duplicados por tenant', async () => {
+  it('crear usuario: valida email, longitud de password y duplicados (email único global)', async () => {
     const emailInvalido = await crearUsuario(app, tokenAdminA, { email: 'no-es-email' });
     assert.equal(emailInvalido.status, 400);
 
@@ -47,7 +45,7 @@ describe('usuarios: CRUD, permisos y aislamiento de tenant', () => {
     const ok = await crearUsuario(app, tokenAdminA, { email: 'duplicado@a.com' });
     assert.equal(ok.status, 201);
     const duplicado = await crearUsuario(app, tokenAdminA, { email: 'duplicado@a.com' });
-    assert.equal(duplicado.status, 400);
+    assert.equal(duplicado.status, 409);
   });
 
   it('esAdmin como string "false" se rechaza (nunca Boolean(valorDeCliente))', async () => {
@@ -55,11 +53,11 @@ describe('usuarios: CRUD, permisos y aislamiento de tenant', () => {
     assert.equal(resp.status, 400);
   });
 
-  it('el mismo email puede existir en tenants distintos (aislado por tenant)', async () => {
+  it('un email no puede repetirse en tenants distintos: el login lo resuelve globalmente', async () => {
     const enA = await crearUsuario(app, tokenAdminA, { email: 'compartido@x.com' });
     const enB = await crearUsuario(app, tokenAdminB, { email: 'compartido@x.com' });
     assert.equal(enA.status, 201);
-    assert.equal(enB.status, 201);
+    assert.equal(enB.status, 409);
   });
 
   it('listar usuarios no filtra por tenantId de cliente: cada tenant solo ve el suyo', async () => {

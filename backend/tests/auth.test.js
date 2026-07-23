@@ -32,10 +32,18 @@ describe('auth: registro de tenant y login', () => {
     );
   });
 
-  it('genera un slug único cuando el nombre del tenant colisiona', async () => {
+  it('rechaza con 409 un nombre de organización ya usado, en vez de generar un slug con sufijo', async () => {
     const r1 = await registrarTenant(app, { nombreTenant: 'Colisión', email: 'a1@colision.com' });
+    assert.equal(r1.status, 201);
     const r2 = await registrarTenant(app, { nombreTenant: 'Colisión', email: 'a2@colision.com' });
-    assert.notEqual(r1.body.tenant.slug, r2.body.tenant.slug);
+    assert.equal(r2.status, 409);
+  });
+
+  it('rechaza con 409 un email ya usado por otro tenant (email es único global)', async () => {
+    const r1 = await registrarTenant(app, { nombreTenant: 'EmailGlobalA', email: 'repetido@global.com' });
+    assert.equal(r1.status, 201);
+    const r2 = await registrarTenant(app, { nombreTenant: 'EmailGlobalB', email: 'repetido@global.com' });
+    assert.equal(r2.status, 409);
   });
 
   it('rechaza registro con campos requeridos faltantes', async () => {
@@ -60,31 +68,26 @@ describe('auth: registro de tenant y login', () => {
   });
 
   it('login exitoso con credenciales correctas', async () => {
-    const reg = await registrarTenant(app, { nombreTenant: 'LoginOk', email: 'ok@loginok.com' });
+    await registrarTenant(app, { nombreTenant: 'LoginOk', email: 'ok@loginok.com' });
     const resp = await request(app)
       .post('/api/auth/login')
-      .send({ tenantSlug: reg.body.tenant.slug, email: 'ok@loginok.com', password: 'password123' });
+      .send({ email: 'ok@loginok.com', password: 'password123' });
     assert.equal(resp.status, 200);
     assert.ok(resp.body.token);
   });
 
-  it('login con tenant inexistente, usuario inexistente y password incorrecta devuelven el mismo 401 genérico', async () => {
-    const reg = await registrarTenant(app, { nombreTenant: 'Timing', email: 'real@timing.com' });
+  it('login con usuario inexistente y password incorrecta devuelven el mismo 401 genérico', async () => {
+    await registrarTenant(app, { nombreTenant: 'Timing', email: 'real@timing.com' });
 
-    const tenantInexistente = await request(app)
-      .post('/api/auth/login')
-      .send({ tenantSlug: 'no-existe-este-tenant', email: 'real@timing.com', password: 'password123' });
     const usuarioInexistente = await request(app)
       .post('/api/auth/login')
-      .send({ tenantSlug: reg.body.tenant.slug, email: 'no-existe@timing.com', password: 'password123' });
+      .send({ email: 'no-existe@timing.com', password: 'password123' });
     const passwordIncorrecta = await request(app)
       .post('/api/auth/login')
-      .send({ tenantSlug: reg.body.tenant.slug, email: 'real@timing.com', password: 'password-incorrecta' });
+      .send({ email: 'real@timing.com', password: 'password-incorrecta' });
 
-    assert.equal(tenantInexistente.status, 401);
     assert.equal(usuarioInexistente.status, 401);
     assert.equal(passwordIncorrecta.status, 401);
-    assert.equal(tenantInexistente.body.error, usuarioInexistente.body.error);
     assert.equal(usuarioInexistente.body.error, passwordIncorrecta.body.error);
   });
 
@@ -92,7 +95,7 @@ describe('auth: registro de tenant y login', () => {
     const reg = await registrarTenant(app, { nombreTenant: 'Desactivado', email: 'admin@desact.com' });
     const nuevo = await crearUsuario(app, reg.body.token, { email: 'inactivo@desact.com' });
 
-    const antesDeDesactivar = await login(app, reg.body.tenant.slug, 'inactivo@desact.com');
+    const antesDeDesactivar = await login(app, 'inactivo@desact.com');
     assert.ok(antesDeDesactivar, 'debería poder loguearse mientras está activo');
 
     await request(app)
@@ -102,7 +105,7 @@ describe('auth: registro de tenant y login', () => {
 
     const resp = await request(app)
       .post('/api/auth/login')
-      .send({ tenantSlug: reg.body.tenant.slug, email: 'inactivo@desact.com', password: 'password123' });
+      .send({ email: 'inactivo@desact.com', password: 'password123' });
     assert.equal(resp.status, 401);
   });
 });
@@ -143,7 +146,7 @@ describe('auth: verificación de JWT en requireAuth', () => {
   it('token válido de un usuario luego desactivado deja de funcionar de inmediato (no espera expiración)', async () => {
     const reg = await registrarTenant(app, { nombreTenant: 'RevocaYa', email: 'admin@revoca.com' });
     const nuevo = await crearUsuario(app, reg.body.token, { email: 'sera-desactivado@revoca.com' });
-    const tokenNuevo = await login(app, reg.body.tenant.slug, 'sera-desactivado@revoca.com');
+    const tokenNuevo = await login(app, 'sera-desactivado@revoca.com');
 
     const antes = await request(app).get('/api/usuarios').set('Authorization', `Bearer ${tokenNuevo}`);
     assert.equal(antes.status, 403, 'usuario no-admin ve 403 (autenticado pero sin permiso), confirma que el token funciona');

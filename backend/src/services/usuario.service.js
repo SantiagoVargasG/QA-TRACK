@@ -37,9 +37,11 @@ async function crear(tenantId, { nombre, email, password, esAdmin }) {
   }
   const esAdminValidado = booleanoOpcional(esAdmin, 'esAdmin') ?? false;
 
-  const existente = await Usuario.findOne({ tenantId, email: email.toLowerCase() });
+  // Email único a nivel global (ver models/Usuario.js): no alcanza con chequear dentro del
+  // tenant, porque login resuelve el tenant a partir del email.
+  const existente = await Usuario.findOne({ email: email.toLowerCase() });
   if (existente) {
-    throw new ApiError(400, 'Ya existe un usuario con ese email en este tenant');
+    throw new ApiError(409, 'Ya existe una cuenta con ese email');
   }
 
   const passwordHash = await bcrypt.hash(password, 10);

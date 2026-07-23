@@ -3,10 +3,7 @@ import { useParams } from 'react-router-dom';
 import { apiFetch } from '../api/client';
 
 const EVENTOS = [
-  { valor: 'criterio_aprobado', etiqueta: 'Criterio aprobado' },
-  { valor: 'criterio_rechazado', etiqueta: 'Criterio rechazado' },
-  { valor: 'caso_solucionado', etiqueta: 'Caso solucionado' },
-  { valor: 'caso_cerrado', etiqueta: 'Caso cerrado' },
+  { valor: 'hu_reportada', etiqueta: 'Historia reportada (botón manual por HU)' },
   { valor: 'prueba_reportada', etiqueta: 'Prueba reportada' },
 ];
 
