@@ -6,6 +6,7 @@ import Layout from './components/Layout';
 import RegistroTenantPage from './pages/RegistroTenantPage';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
+import InicioPage from './pages/InicioPage';
 import UsuariosPage from './pages/UsuariosPage';
 import RolesPage from './pages/RolesPage';
 import ProyectosPage from './pages/ProyectosPage';
@@ -29,7 +30,8 @@ function App() {
               </ProtectedRoute>
             )}
           >
-            <Route path="/" element={<DashboardPage />} />
+            <Route path="/" element={<InicioPage />} />
+            <Route path="/proyecto" element={<DashboardPage />} />
             <Route path="/proyectos" element={<ProyectosPage />} />
             <Route
               path="/proyectos/:id/equipo"

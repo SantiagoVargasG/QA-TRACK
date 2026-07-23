@@ -16,6 +16,14 @@ async function obtener(req, res, next) {
   }
 }
 
+async function miembros(req, res, next) {
+  try {
+    res.json(await proyectoService.miembros(req.auth.tenantId, req.params.id, req.auth));
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function crear(req, res, next) {
   try {
     res.status(201).json(await proyectoService.crear(req.auth.tenantId, req.body));
@@ -58,4 +66,13 @@ async function actualizarColumnasCheck(req, res, next) {
   }
 }
 
-module.exports = { listar, obtener, crear, actualizar, eliminar, actualizarEquipo, actualizarColumnasCheck };
+module.exports = {
+  listar,
+  obtener,
+  miembros,
+  crear,
+  actualizar,
+  eliminar,
+  actualizarEquipo,
+  actualizarColumnasCheck,
+};

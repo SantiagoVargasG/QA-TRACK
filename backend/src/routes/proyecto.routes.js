@@ -8,6 +8,7 @@ const router = Router();
 router.get('/proyectos', requireAuth, proyectoController.listar);
 router.post('/proyectos', requireAuth, requireAdmin, proyectoController.crear);
 router.get('/proyectos/:id', requireAuth, validarIdParam(), proyectoController.obtener);
+router.get('/proyectos/:id/miembros', requireAuth, validarIdParam(), proyectoController.miembros);
 router.put('/proyectos/:id', requireAuth, requireAdmin, validarIdParam(), proyectoController.actualizar);
 router.delete('/proyectos/:id', requireAuth, requireAdmin, validarIdParam(), proyectoController.eliminar);
 router.put(

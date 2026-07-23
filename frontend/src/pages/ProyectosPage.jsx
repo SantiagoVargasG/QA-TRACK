@@ -43,7 +43,7 @@ function ProyectosPage() {
 
   function entrar(id) {
     seleccionarProyecto(id);
-    navigate('/');
+    navigate('/proyecto');
   }
 
   return (

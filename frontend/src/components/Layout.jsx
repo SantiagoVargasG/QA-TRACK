@@ -1,105 +1,40 @@
-import { Link, Outlet, useNavigate } from 'react-router-dom';
+import { Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useProyecto } from '../context/ProyectoContext';
+import TopBar from './TopBar';
+import Sidebar from './Sidebar';
 
 function Layout() {
-  const { tenant, usuario, logout } = useAuth();
+  const { usuario, logout } = useAuth();
   const { proyectos, proyectoActual, proyectoActualId, modulos, seleccionarProyecto } = useProyecto();
   const navigate = useNavigate();
 
-  function onCambiarProyecto(e) {
-    const id = e.target.value || null;
+  function onCambiarProyecto(id) {
     seleccionarProyecto(id);
-    navigate('/');
+    // "/" ahora es el Inicio global (independiente del proyecto seleccionado) — elegir un
+    // proyecto te lleva a su espacio de trabajo, no de vuelta al panorama general.
+    navigate('/proyecto');
   }
 
-  return (
-    <div className="flex h-screen flex-col">
-      <header className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-3">
-        <div className="flex items-center gap-4">
-          <span className="font-semibold text-gray-800">Plataforma QA — {tenant?.nombre}</span>
-          <select
-            value={proyectoActualId || ''}
-            onChange={onCambiarProyecto}
-            className="rounded border border-gray-300 px-2 py-1 text-sm"
-          >
-            <option value="">Seleccionar proyecto...</option>
-            {proyectos.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.nombre}
-              </option>
-            ))}
-          </select>
-          <Link to="/proyectos" className="text-sm text-blue-600 hover:underline">
-            Gestionar proyectos
-          </Link>
-        </div>
-        <div className="flex items-center gap-4 text-sm text-gray-600">
-          <span>{usuario?.nombre}</span>
-          <button type="button" onClick={logout} className="text-red-600 hover:underline">
-            Salir
-          </button>
-        </div>
-      </header>
-      <div className="flex flex-1 overflow-hidden">
-        <aside className="w-56 border-r border-gray-200 bg-gray-50 p-4">
-          <nav className="flex flex-col gap-2 text-sm">
-            <Link to="/" className="text-gray-700 hover:text-gray-900">
-              Inicio
-            </Link>
-            {usuario?.esAdmin && (
-              <Link to="/usuarios" className="text-gray-700 hover:text-gray-900">
-                Usuarios
-              </Link>
-            )}
-            {usuario?.esAdmin && (
-              <Link to="/roles" className="text-gray-700 hover:text-gray-900">
-                Roles
-              </Link>
-            )}
-            {usuario?.esAdmin && (
-              <Link to="/auditoria" className="text-gray-700 hover:text-gray-900">
-                Auditoría
-              </Link>
-            )}
-          </nav>
+  const proyectosParaSelector = proyectos.map((p) => ({
+    id: p.id,
+    nombre: p.nombre,
+    totalIntegrantes: p.equipo.length,
+  }));
 
-          {proyectoActual && (
-            <>
-              <p className="mt-4 text-xs font-semibold uppercase text-gray-400">
-                Módulos de {proyectoActual.nombre}
-              </p>
-              <nav className="mt-2 flex flex-col gap-2 text-sm">
-                {modulos.length === 0 && <span className="text-gray-400">Sin módulos todavía</span>}
-                {modulos.map((m) => (
-                  <Link key={m.id} to={`/modulos/${m.id}`} className="text-gray-700 hover:text-gray-900">
-                    {m.nombre}
-                  </Link>
-                ))}
-              </nav>
-              <Link to="/reportar-prueba" className="mt-4 block text-xs text-blue-600 hover:underline">
-                Reportar prueba
-              </Link>
-              {usuario?.esAdmin && (
-                <>
-                  <Link
-                    to={`/proyectos/${proyectoActual.id}/equipo`}
-                    className="mt-1 block text-xs text-blue-600 hover:underline"
-                  >
-                    Configurar equipo
-                  </Link>
-                  <Link
-                    to={`/proyectos/${proyectoActual.id}/webhooks`}
-                    className="mt-1 block text-xs text-blue-600 hover:underline"
-                  >
-                    Webhooks
-                  </Link>
-                </>
-              )}
-            </>
-          )}
-        </aside>
-        <main className="flex-1 overflow-y-auto p-6">
+  return (
+    <div className="min-h-screen bg-surface">
+      <TopBar
+        proyectos={proyectosParaSelector}
+        proyectoActualId={proyectoActualId}
+        onCambiarProyecto={onCambiarProyecto}
+        onGestionarProyectos={() => navigate('/proyectos')}
+        usuario={usuario}
+        onLogout={logout}
+      />
+      <div className="flex pt-16">
+        <Sidebar usuario={usuario} proyectoActual={proyectoActual} modulos={modulos} />
+        <main className="w-full flex-1 p-gutter md:ml-64">
           <Outlet />
         </main>
       </div>

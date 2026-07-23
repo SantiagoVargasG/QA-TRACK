@@ -1,0 +1,80 @@
+/*
+ * Sistema de diseño "Mi Oiko Track": tokens de marca extraídos de la maqueta Stitch,
+ * traducidos a variables CSS de Tailwind v4 (el proyecto es CSS-first, sin tailwind.config.js
+ * — @theme registra cada token como utilidad de Tailwind automáticamente: --color-primary
+ * genera bg-primary/text-primary/border-primary, etc.). Único archivo de tema: cualquier
+ * ajuste de marca (color, tipografía, radio) se hace acá, no en los componentes.
+ */
+@theme {
+  /* Colores — subconjunto realmente usado por los componentes del sistema de diseño,
+     no la paleta Material completa de la maqueta (principio "liviano" del PRD). */
+  --color-primary: #542cc7;
+  --color-primary-container: #6d4ae0;
+  --color-secondary: #6442c6;
+  --color-secondary-container: #7d5de1;
+  --color-on-secondary-container: #fffbff;
+  --color-on-surface: #1c192c;
+  --color-on-surface-variant: #484554;
+  --color-surface: #fdf8ff;
+  --color-surface-lavender: #f5f4fa;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f7f1ff;
+  --color-surface-container: #f1ebff;
+  --color-surface-container-high: #ebe5ff;
+  --color-icon-bg: #ede9fb;
+  --color-outline-variant: #cac3d7;
+  --color-error: #ba1a1a;
+  --color-gradient-start: #7c5ce0;
+  --color-gradient-end: #a78bfa;
+
+  /* Tipografía: Montserrat para titulares, Hanken Grotesk para cuerpo/texto de UI. */
+  --font-headline: 'Montserrat', sans-serif;
+  --font-body: 'Hanken Grotesk', sans-serif;
+
+  --text-headline-xl: 40px;
+  --text-headline-xl--line-height: 48px;
+  --text-headline-xl--font-weight: 700;
+  --text-headline-xl--letter-spacing: -0.02em;
+
+  --text-headline-lg: 32px;
+  --text-headline-lg--line-height: 40px;
+  --text-headline-lg--font-weight: 700;
+  --text-headline-lg--letter-spacing: -0.01em;
+
+  --text-headline-md: 24px;
+  --text-headline-md--line-height: 32px;
+  --text-headline-md--font-weight: 600;
+
+  --text-body-lg: 18px;
+  --text-body-lg--line-height: 28px;
+
+  --text-body-md: 16px;
+  --text-body-md--line-height: 24px;
+
+  --text-label-md: 14px;
+  --text-label-md--line-height: 20px;
+  --text-label-md--font-weight: 600;
+
+  /* Espaciado del layout de Inicio (grillas de KPIs/tarjetas). */
+  --spacing-gutter: 16px;
+  --spacing-section-gap: 48px;
+}
+
+/* Degradado diagonal característico de la marca: botones y acentos primarios. */
+@utility diagonal-gradient {
+  background-image: linear-gradient(135deg, var(--color-gradient-start), var(--color-gradient-end));
+}
+
+/* Sombra suave y consistente para toda superficie elevada (tarjetas, topbar, dropdowns). */
+@utility card-shadow {
+  box-shadow:
+    0 1px 2px rgba(28, 9, 38, 0.04),
+    0 4px 12px rgba(28, 9, 38, 0.06);
+}
+
+/* Avatares de equipo solapados. */
+@utility avatar-stack {
+  & > * + * {
+    margin-left: -0.5rem;
+  }
+}

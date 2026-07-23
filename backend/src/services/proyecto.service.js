@@ -32,6 +32,17 @@ async function obtener(tenantId, proyectoId, auth) {
   return proyectoPublico(proyecto);
 }
 
+// Endpoint liviano para resolver iniciales/nombre de los integrantes del equipo (ej.
+// avatares en el dashboard) sin exponer el resto de los campos de Usuario ni requerir
+// esAdmin como GET /usuarios — cualquier miembro del proyecto (o admin) puede consultarlo,
+// mismo control de acceso que el resto de las rutas de proyecto.
+async function miembros(tenantId, proyectoId, auth) {
+  const proyecto = await cargarProyectoConAcceso(tenantId, proyectoId, auth);
+  const usuarioIds = proyecto.equipo.map((m) => m.usuarioId);
+  const usuarios = await Usuario.find({ _id: { $in: usuarioIds }, tenantId, activo: true }, 'nombre').lean();
+  return usuarios.map((u) => ({ id: u._id, nombre: u.nombre }));
+}
+
 async function crear(tenantId, { nombre, descripcion }) {
   if (!nombre) throw new ApiError(400, 'nombre es requerido');
   validarLongitudMax(nombre, 'nombre', 100);
@@ -169,6 +180,7 @@ async function actualizarColumnasCheck(tenantId, proyectoId, { columnasCheck }) 
 module.exports = {
   listar,
   obtener,
+  miembros,
   crear,
   actualizar,
   eliminar,

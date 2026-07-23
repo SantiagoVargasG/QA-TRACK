@@ -51,7 +51,20 @@
       "Bash(curl -s -o /dev/null -w \"frontend http \\(no s\\) status: %{http_code}\\\\n\" http://localhost:5173/ --max-time 5)",
       "Bash(node verificar_login_https.js)",
       "Bash(rm -f verificar_login_https.js)",
-      "Bash(node diagnosticar_click.js)"
+      "Bash(node diagnosticar_click.js)",
+      "Bash(xargs -I{} echo {})",
+      "Bash(grep -v \"^$\")",
+      "PowerShell(Get-CimInstance Win32_Process -Filter \"ProcessId=26592 or ProcessId=15452 or ProcessId=20548\")",
+      "Bash(curl -s http://localhost:4000/api/health)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:4000/api/dashboard)",
+      "Bash(curl -s -k https://localhost:5173/)",
+      "Bash(curl -s -k -o /dev/null -w \"%{http_code}\\\\n\" https://localhost:5173/src/main.jsx)",
+      "Bash(curl -s -k -X POST https://localhost:5173/api/auth/login -H \"Content-Type: application/json\" -d '{\"email\":\"admin@demo.test\",\"password\":\"Admin123*\"}' -w \"\\\\nHTTP:%{http_code}\\\\n\")",
+      "Bash(npx --yes playwright install chromium --with-deps)",
+      "Bash(mkdir -p \"/c/Users/SANTIA~1/AppData/Local/Temp/claude/c--Users-Santiago-Vargas-plataforma-seguimiento-qa/10ad5a0a-4989-43d6-ab93-b4d892035e52/scratchpad\")",
+      "Read(//c/Users/SANTIA~1/AppData/Local/Temp/claude/c--Users-Santiago-Vargas-plataforma-seguimiento-qa/10ad5a0a-4989-43d6-ab93-b4d892035e52/scratchpad/**)",
+      "Bash(npx playwright *)",
+      "Bash(node screenshot.js)"
     ],
     "additionalDirectories": [
       "C:\\Users\\SANTIA~1\\AppData\\Local\\Temp\\claude\\c--Users-Santiago-Vargas-plataforma-seguimiento-qa\\8b30ec49-3562-40b8-a76a-410660a0175f\\scratchpad"
