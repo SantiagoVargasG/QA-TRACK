@@ -98,10 +98,71 @@ function criterioPublico(criterio) {
   };
 }
 
+// Regla única de "¿puede este usuario actuar sobre esta columna?": tiene el rol asignado a
+// la columna en el equipo del proyecto Y ese rol tiene la capacidad requerida; esAdmin
+// puentea el chequeo (queda marcado porAdmin). Pura (no consulta la BD) para poder
+// evaluarla repetidas veces con el rol ya resuelto una sola vez — ver evaluarPermisoColumna()
+// (una consulta por request, usada por aplicarCheck) y listar() (una consulta por listado,
+// reutilizada para todos los criterios y columnas candidatas).
+function permisoColumnaSync(auth, miembro, rol, columnaDef, capacidad) {
+  const tieneRolAsignado =
+    !!miembro && !!columnaDef.rolId && columnaDef.rolId.toString() === miembro.rolId.toString();
+
+  if (auth.esAdmin) return { puede: true, porAdmin: !tieneRolAsignado, razon: null };
+  if (!tieneRolAsignado) return { puede: false, porAdmin: false, razon: 'sin_rol' };
+  if (!rol || !rol.capacidades.includes(capacidad)) return { puede: false, porAdmin: false, razon: 'sin_capacidad' };
+  return { puede: true, porAdmin: false, razon: null };
+}
+
+// Punto de entrada usado por aplicarCheck(): resuelve el rol del usuario en este proyecto
+// (solo si hace falta, mismo condicional que antes de extraer esto) y delega en
+// permisoColumnaSync(). Única fuente de verdad de la regla de permisos por columna — no se
+// duplica en ningún otro lugar del backend ni del frontend (ver calcularAccionesPermitidas,
+// que la reutiliza para el hint de solo lectura en listar()).
+async function evaluarPermisoColumna(tenantId, proyecto, auth, columnaDef, capacidad) {
+  const miembro = obtenerMiembroEquipo(proyecto, auth);
+  if (auth.esAdmin) return permisoColumnaSync(auth, miembro, null, columnaDef, capacidad);
+
+  const tieneRolAsignado =
+    !!miembro && !!columnaDef.rolId && columnaDef.rolId.toString() === miembro.rolId.toString();
+  if (!tieneRolAsignado) return permisoColumnaSync(auth, miembro, null, columnaDef, capacidad);
+
+  const rol = await Rol.findOne({ _id: miembro.rolId, tenantId });
+  return permisoColumnaSync(auth, miembro, rol, columnaDef, capacidad);
+}
+
+// Solo lectura: qué transiciones puede ejecutar el usuario autenticado sobre un criterio en
+// su estado actual, para que el frontend no tenga que adivinar ni duplicar la regla de
+// permisos (ver selector de estado en ModuloDetallePage.jsx). La validación real sigue
+// ocurriendo en aplicarCheck() en el momento del clic — esto nunca la reemplaza, es
+// únicamente un hint de presentación calculado con la misma regla (permisoColumnaSync).
+function calcularAccionesPermitidas(estado, proyecto, auth, miembro, rol) {
+  const disponibles = [];
+  for (const [accion, config] of Object.entries(ACCIONES)) {
+    if (!config.origenes.includes(estado)) continue;
+    for (const columnaDef of proyecto.columnasCheck) {
+      if (columnaDef.tipo !== config.tipoColumna) continue;
+      const { puede } = permisoColumnaSync(auth, miembro, rol, columnaDef, config.capacidad);
+      if (puede) disponibles.push({ accion, columna: columnaDef.nombre });
+    }
+  }
+  return disponibles;
+}
+
 async function listar(tenantId, historiaId, auth) {
-  await cargarHistoriaConAcceso(tenantId, historiaId, auth);
+  const { proyecto } = await cargarHistoriaConAcceso(tenantId, historiaId, auth);
   const criterios = await Criterio.find({ tenantId, historiaId, activo: true }).sort({ orden: 1 });
-  return criterios.map(criterioPublico);
+
+  // Mismo condicional que evaluarPermisoColumna() para no consultar Rol de más: si es
+  // admin, la regla ya es "siempre puede" y no hace falta resolver rol; si no tiene un
+  // miembro asignado en el equipo, tampoco hay rol que resolver.
+  const miembro = obtenerMiembroEquipo(proyecto, auth);
+  const rol = !auth.esAdmin && miembro ? await Rol.findOne({ _id: miembro.rolId, tenantId }) : null;
+
+  return criterios.map((criterio) => ({
+    ...criterioPublico(criterio),
+    accionesPermitidas: calcularAccionesPermitidas(criterio.estado, proyecto, auth, miembro, rol),
+  }));
 }
 
 async function crear(tenantId, historiaId, auth, { texto }) {
@@ -209,21 +270,13 @@ async function aplicarCheck(tenantId, criterioId, auth, { columna, accion, comen
     throw new ApiError(400, `la acción "${accion}" no es válida para una columna de tipo "${columnaDef.tipo}"`);
   }
 
-  const miembro = obtenerMiembroEquipo(proyecto, auth);
-  const tieneRolAsignado =
-    !!miembro && !!columnaDef.rolId && columnaDef.rolId.toString() === miembro.rolId.toString();
-
-  if (!auth.esAdmin) {
-    if (!tieneRolAsignado) {
+  const { puede, porAdmin, razon } = await evaluarPermisoColumna(tenantId, proyecto, auth, columnaDef, config.capacidad);
+  if (!puede) {
+    if (razon === 'sin_rol') {
       throw new ApiError(403, `No tienes el rol asignado a la columna "${columna}" en este proyecto`);
     }
-
-    const rol = await Rol.findOne({ _id: miembro.rolId, tenantId });
-    if (!rol || !rol.capacidades.includes(config.capacidad)) {
-      throw new ApiError(403, `Requiere la capacidad "${config.capacidad}" en este proyecto`);
-    }
+    throw new ApiError(403, `Requiere la capacidad "${config.capacidad}" en este proyecto`);
   }
-  const porAdmin = auth.esAdmin && !tieneRolAsignado;
 
   if (!config.origenes.includes(criterio.estado)) {
     throw new ApiError(

@@ -293,6 +293,51 @@ describe('criterios: CRUD, máquina de estados (camino feliz) y permisos por col
     );
   });
 
+  it('accionesPermitidas en el listado refleja el rol/capacidad del usuario, sin reemplazar la validación real de check', async () => {
+    const criterioId = await crearCriterio();
+
+    async function listarComo(token) {
+      const resp = await request(app)
+        .get(`/api/historias/${historiaId}/criterios`)
+        .set('Authorization', `Bearer ${token}`);
+      return resp.body.find((c) => c.id === criterioId);
+    }
+
+    // PENDIENTE: solo Dev (o admin) tiene algo para hacer, vía la columna Desarrollo. QA y
+    // Lector no tienen ninguna acción disponible en este estado.
+    assert.deepEqual((await listarComo(base.tokens.dev)).accionesPermitidas, [
+      { accion: 'finalizar', columna: 'Desarrollo' },
+    ]);
+    assert.deepEqual((await listarComo(base.tokens.qa)).accionesPermitidas, []);
+    assert.deepEqual((await listarComo(base.tokens.lector)).accionesPermitidas, []);
+    assert.deepEqual((await listarComo(base.tokens.admin)).accionesPermitidas, [
+      { accion: 'finalizar', columna: 'Desarrollo' },
+    ]);
+
+    await request(app)
+      .post(`/api/criterios/${criterioId}/check`)
+      .set('Authorization', `Bearer ${base.tokens.dev}`)
+      .send({ columna: 'Desarrollo', accion: 'finalizar' });
+
+    // FINALIZADO_DEV: ahora es QA quien tiene acciones (aprobar/rechazar vía QA); Dev ya no
+    // tiene nada que hacer sobre este criterio en este estado.
+    assert.deepEqual((await listarComo(base.tokens.dev)).accionesPermitidas, []);
+    assert.deepEqual((await listarComo(base.tokens.qa)).accionesPermitidas, [
+      { accion: 'aprobar', columna: 'QA' },
+      { accion: 'rechazar', columna: 'QA' },
+    ]);
+
+    // El campo es solo un hint de presentación: si QA ejecuta la acción que el hint marcó
+    // como disponible, el backend la valida igual en aplicarCheck() y la acepta — no es un
+    // atajo que se salte esa validación, es un espejo correcto de la misma regla.
+    const aprobar = await request(app)
+      .post(`/api/criterios/${criterioId}/check`)
+      .set('Authorization', `Bearer ${base.tokens.qa}`)
+      .send({ columna: 'QA', accion: 'aprobar' });
+    assert.equal(aprobar.status, 200);
+    assert.equal(aprobar.body.estado, 'APROBADO');
+  });
+
   it('soft-delete: el criterio eliminado desaparece del listado', async () => {
     const criterioId = await crearCriterio('Para borrar');
     await request(app)
