@@ -98,6 +98,13 @@ function criterioPublico(criterio) {
   };
 }
 
+// Único lugar donde se calcula "¿el usuario tiene el rol asignado a esta columna?" — tanto
+// permisoColumnaSync() como evaluarPermisoColumna() delegan acá en vez de recalcularlo cada
+// una por su cuenta, para que un cambio futuro en la regla no pueda divergir entre las dos.
+function tieneRolAsignadoColumna(miembro, columnaDef) {
+  return !!miembro && !!columnaDef.rolId && columnaDef.rolId.toString() === miembro.rolId.toString();
+}
+
 // Regla única de "¿puede este usuario actuar sobre esta columna?": tiene el rol asignado a
 // la columna en el equipo del proyecto Y ese rol tiene la capacidad requerida; esAdmin
 // puentea el chequeo (queda marcado porAdmin). Pura (no consulta la BD) para poder
@@ -105,8 +112,7 @@ function criterioPublico(criterio) {
 // (una consulta por request, usada por aplicarCheck) y listar() (una consulta por listado,
 // reutilizada para todos los criterios y columnas candidatas).
 function permisoColumnaSync(auth, miembro, rol, columnaDef, capacidad) {
-  const tieneRolAsignado =
-    !!miembro && !!columnaDef.rolId && columnaDef.rolId.toString() === miembro.rolId.toString();
+  const tieneRolAsignado = tieneRolAsignadoColumna(miembro, columnaDef);
 
   if (auth.esAdmin) return { puede: true, porAdmin: !tieneRolAsignado, razon: null };
   if (!tieneRolAsignado) return { puede: false, porAdmin: false, razon: 'sin_rol' };
@@ -121,11 +127,9 @@ function permisoColumnaSync(auth, miembro, rol, columnaDef, capacidad) {
 // que la reutiliza para el hint de solo lectura en listar()).
 async function evaluarPermisoColumna(tenantId, proyecto, auth, columnaDef, capacidad) {
   const miembro = obtenerMiembroEquipo(proyecto, auth);
-  if (auth.esAdmin) return permisoColumnaSync(auth, miembro, null, columnaDef, capacidad);
-
-  const tieneRolAsignado =
-    !!miembro && !!columnaDef.rolId && columnaDef.rolId.toString() === miembro.rolId.toString();
-  if (!tieneRolAsignado) return permisoColumnaSync(auth, miembro, null, columnaDef, capacidad);
+  if (auth.esAdmin || !tieneRolAsignadoColumna(miembro, columnaDef)) {
+    return permisoColumnaSync(auth, miembro, null, columnaDef, capacidad);
+  }
 
   const rol = await Rol.findOne({ _id: miembro.rolId, tenantId });
   return permisoColumnaSync(auth, miembro, rol, columnaDef, capacidad);

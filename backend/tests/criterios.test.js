@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const request = require('supertest');
 const entorno = require('./helpers/entorno');
 const { registrarTenant, crearTenantConEquipoBase, crearProyectoConEquipo } = require('./helpers/fixtures');
+const Rol = require('../src/models/Rol');
 
 describe('criterios: CRUD, máquina de estados (camino feliz) y permisos por columna/rol', () => {
   let app;
@@ -132,6 +133,35 @@ describe('criterios: CRUD, máquina de estados (camino feliz) y permisos por col
       .set('Authorization', `Bearer ${base.tokens.dev}`)
       .send({ columna: 'QA', accion: 'aprobar' });
     assert.equal(devTocaQA.status, 403);
+  });
+
+  it('rol asignado a la columna pero SIN la capacidad requerida -> 403 "Requiere la capacidad...", no "sin rol asignado"', async () => {
+    // A diferencia del test anterior (QA tocando Desarrollo: falla por rol-no-asignado), acá
+    // el rol SÍ es el asignado a la columna QA — se le quita la capacidad para llegar al otro
+    // branch de aplicarCheck(). Se restaura el rol semilla al final para no afectar el resto
+    // de los tests de este archivo (todos comparten la misma base/equipo).
+    const rolQA = await Rol.findById(base.roles.qa._id);
+    const capacidadesOriginales = [...rolQA.capacidades];
+    rolQA.capacidades = rolQA.capacidades.filter((c) => c !== 'aprobar_rechazar');
+    await rolQA.save();
+
+    try {
+      const criterioId = await crearCriterio();
+      await request(app)
+        .post(`/api/criterios/${criterioId}/check`)
+        .set('Authorization', `Bearer ${base.tokens.dev}`)
+        .send({ columna: 'Desarrollo', accion: 'finalizar' });
+
+      const resp = await request(app)
+        .post(`/api/criterios/${criterioId}/check`)
+        .set('Authorization', `Bearer ${base.tokens.qa}`)
+        .send({ columna: 'QA', accion: 'aprobar' });
+      assert.equal(resp.status, 403);
+      assert.equal(resp.body.error, 'Requiere la capacidad "aprobar_rechazar" en este proyecto');
+    } finally {
+      rolQA.capacidades = capacidadesOriginales;
+      await rolQA.save();
+    }
   });
 
   it('lector (sin marcar_finalizado ni aprobar_rechazar) no puede accionar ninguna columna', async () => {

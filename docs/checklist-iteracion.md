@@ -146,6 +146,21 @@ identificado se agregan aquí antes de cerrarla.
   (¿este assert detectaría el bug si el código bajo prueba no hiciera lo que promete?). Detectado en la
   auditoría de Iteración 6: `assert.ok(x.every((e) => e.usuarioId === id || true))` en
   `tests/auditoria.test.js` nunca podía fallar por el `|| true`.
+- [ ] **Todo campo de solo-lectura que exponga un hint de permisos/acciones disponibles (calculado en el
+  backend para que el frontend no adivine ni duplique la regla) debe:** (a) reutilizar exactamente la
+  misma función pura que la validación real, nunca una copia paralela de la regla; (b) tener un test que
+  ejecute una acción NO incluida en el hint y confirme que el endpoint real la sigue rechazando (403/400,
+  nunca 200) — el hint nunca puede ser la única barrera; (c) pasar por una mutación deliberada (invertir
+  la condición clave y confirmar que el assert se rompe) antes de dar el hallazgo por cerrado, igual que
+  cualquier otro assert nuevo. Ver `accionesPermitidas`/`permisoColumnaSync()` en
+  `services/criterio.service.js` (verificado en la auditoría del commit `490ab07`).
+- [ ] **Toda regla de permisos que se reutilice para calcular un campo derivado sobre una LISTA de
+  resultados (no un solo recurso) resuelve sus datos costosos (ej. el `Rol` del usuario) una sola vez por
+  request, nunca una vez por elemento de la lista** — extraer la regla en una función pura que reciba el
+  dato ya resuelto, en vez de que cada elemento repita la consulta. Ver `listar()` en
+  `services/criterio.service.js`, que resuelve `Rol` una sola vez y lo reutiliza para todos los criterios
+  del listado (confirmado sin N+1 en la auditoría del commit `490ab07`, instrumentando el conteo de
+  llamadas a `Rol.findOne`).
 - [ ] **Para cambios de frontend, se verificó la funcionalidad en un navegador real** (Playwright u otra
   herramienta equivalente), no solo que el código compile o pase linters.
 - [ ] **Ningún archivo de frontend invoca un endpoint que no está registrado en las rutas del backend de la
