@@ -191,6 +191,7 @@ function RechazarModal({ criterioId, columna, onClose, onRechazado }) {
 function EvidenciaPreview({ evidencia }) {
   const [url, setUrl] = useState(null);
   const [error, setError] = useState('');
+  const [abierta, setAbierta] = useState(false);
   const esImagen = evidencia.tipoMime.startsWith('image/');
 
   useEffect(() => {
@@ -212,82 +213,73 @@ function EvidenciaPreview({ evidencia }) {
   if (error) return <p className="font-body text-body-md text-error">No se pudo cargar la evidencia</p>;
   if (!url) return <p className="font-body text-body-md text-on-surface-variant/60">Cargando evidencia…</p>;
 
-  return esImagen ? (
-    <img src={url} alt="Evidencia adjunta" className="mt-2 max-h-40 rounded-xl border border-outline-variant" />
-  ) : (
-    <video src={url} controls className="mt-2 max-h-40 rounded-xl border border-outline-variant" />
-  );
-}
-
-function HistoricoDrawer({ criterioId, onClose }) {
-  const [reportes, setReportes] = useState([]);
-  const [error, setError] = useState('');
-  const [cargando, setCargando] = useState(true);
-
-  useEffect(() => {
-    apiFetch(`/criterios/${criterioId}/reportes`)
-      .then(setReportes)
-      .catch((err) => setError(err.message))
-      .finally(() => setCargando(false));
-  }, [criterioId]);
-
   return (
-    <div className="fixed inset-0 z-40 flex justify-end bg-on-surface/30 backdrop-blur-sm" onClick={onClose}>
-      <div
-        className="h-full w-full max-w-md overflow-y-auto bg-surface-container-lowest p-6 card-shadow"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between">
-          <h3 className="font-headline text-headline-md text-on-surface">Histórico del criterio</h3>
+    <>
+      {esImagen ? (
+        <button type="button" onClick={() => setAbierta(true)} title="Ver imagen en grande" className="mt-2 block">
+          <img
+            src={url}
+            alt="Evidencia adjunta"
+            className="max-h-40 rounded-xl border border-outline-variant transition-opacity hover:opacity-80"
+          />
+        </button>
+      ) : (
+        // El <video> conserva sus propios controles nativos (play/pausa/volumen) sin
+        // interferencia — envolverlo en un <button> rompería esos controles (elemento
+        // interactivo anidado dentro de otro). El ícono de expandir es un botón aparte,
+        // superpuesto, que abre la versión grande sin tocar el video de la miniatura.
+        <div className="relative mt-2 inline-block">
+          <video src={url} controls className="max-h-40 rounded-xl border border-outline-variant" />
           <button
             type="button"
-            onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-full text-on-surface-variant transition-colors hover:bg-error/10 hover:text-error"
+            onClick={() => setAbierta(true)}
+            title="Ver video en grande"
+            className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-on-surface/60 text-white transition-colors hover:bg-on-surface/80"
           >
-            <Icon name="close" />
+            <Icon name="fullscreen" className="text-[16px]" />
           </button>
         </div>
-        {cargando && <p className="mt-4 font-body text-body-md text-on-surface-variant">Cargando…</p>}
-        {error && <p className="mt-4 font-body text-body-md text-error">{error}</p>}
-        {!cargando && reportes.length === 0 && (
-          <p className="mt-4 font-body text-body-md text-on-surface-variant/70">Sin reportes todavía.</p>
+      )}
+      <Modal open={abierta} onClose={() => setAbierta(false)} maxWidth="max-w-3xl">
+        <button
+          type="button"
+          onClick={() => setAbierta(false)}
+          title="Cerrar"
+          className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full text-on-surface-variant transition-colors hover:bg-error/10 hover:text-error"
+        >
+          <Icon name="close" />
+        </button>
+        {esImagen ? (
+          <img src={url} alt="Evidencia adjunta" className="max-h-[80vh] w-full rounded-xl object-contain" />
+        ) : (
+          <video src={url} controls autoPlay className="max-h-[80vh] w-full rounded-xl" />
         )}
-        <div className="mt-4 space-y-4">
-          {reportes.map((reporte) => (
-            <div key={reporte.id} className="rounded-xl border border-icon-bg p-4">
-              <p className="font-label-md text-[12px] font-bold uppercase tracking-wide text-on-surface-variant">
-                Caso {reporte.estadoCaso} — {new Date(reporte.createdAt).toLocaleString()}
-              </p>
-              <ul className="mt-3 space-y-4">
-                {reporte.entradas.map((entrada, idx) => (
-                  <li key={idx} className="border-l-2 border-outline-variant pl-3">
-                    <p className="font-body text-body-md font-bold text-on-surface">
-                      {ENTRADA_LABEL[entrada.tipo] || entrada.tipo}
-                      {entrada.porAdmin && (
-                        <span className="ml-2 font-label-md text-[11px] font-normal text-amber-600">
-                          (acción administrativa)
-                        </span>
-                      )}
-                    </p>
-                    <p className="font-label-md text-[11px] text-on-surface-variant/70">
-                      {new Date(entrada.fecha).toLocaleString()}
-                    </p>
-                    {entrada.comentario && (
-                      <p className="mt-1 font-body text-body-md text-on-surface-variant">{entrada.comentario}</p>
-                    )}
-                    {entrada.evidencias?.map((ev) => (
-                      <EvidenciaPreview key={ev.archivo} evidencia={ev} />
-                    ))}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
+      </Modal>
+    </>
   );
 }
+
+// Ítems de la línea de tiempo "Actividad" de un criterio, fusionados en el cliente a partir
+// de DOS fuentes que siguen siendo colecciones separadas en el backend: comentarios libres
+// (Comentario) y entradas de Reporte (rechazo/solucion/reapertura/cierre). El campo `tipo`
+// de cada ítem viene directo del dato de origen — 'comentario' para uno, `entrada.tipo` para
+// el otro — nunca se reinterpreta, así que un rechazo no puede terminar etiquetado como
+// comentario libre ni viceversa. Ver fusionarActividad() en CriterioRow.
+const ACTIVIDAD_LABEL = { comentario: 'Comentario', ...ENTRADA_LABEL };
+const ACTIVIDAD_ICON = {
+  comentario: 'chat_bubble',
+  rechazo: 'cancel',
+  solucion: 'build',
+  reapertura: 'refresh',
+  cierre: 'task_alt',
+};
+const ACTIVIDAD_COLOR = {
+  comentario: 'text-on-surface-variant',
+  rechazo: 'text-red-600',
+  solucion: 'text-amber-600',
+  reapertura: 'text-amber-600',
+  cierre: 'text-green-600',
+};
 
 function NuevoCriterioForm({ historiaId, onCreado }) {
   const [abierto, setAbierto] = useState(false);
@@ -354,7 +346,6 @@ function NuevoCriterioForm({ historiaId, onCreado }) {
 function CriterioRow({ criterio, columnasCheck, onCambio }) {
   const [error, setError] = useState('');
   const [modalColumna, setModalColumna] = useState(null);
-  const [mostrarHistorico, setMostrarHistorico] = useState(false);
   const [editando, setEditando] = useState(false);
   const [textoEdit, setTextoEdit] = useState(criterio.texto);
   const [guardando, setGuardando] = useState(false);
@@ -364,6 +355,103 @@ function CriterioRow({ criterio, columnasCheck, onCambio }) {
   // segunda request concurrente recibe 400), pero deshabilitar el botón mientras hay una
   // request en vuelo evita mandarla siquiera: mejor UX, un clic de más no debe mostrar error.
   const [enviando, setEnviando] = useState(false);
+  // "Actividad": único desplegable que fusiona EN EL CLIENTE dos fuentes que siguen siendo
+  // colecciones separadas en el backend — comentarios libres (Comentario, sin relación con
+  // la máquina de estados) y entradas de Reporte (rechazo/solucion/reapertura/cierre,
+  // generadas solo por aplicarCheck()). Ver fusionarActividad() más abajo.
+  const [mostrarActividad, setMostrarActividad] = useState(false);
+  const [actividad, setActividad] = useState([]);
+  const [cargandoActividad, setCargandoActividad] = useState(false);
+  const [errorActividad, setErrorActividad] = useState('');
+  const [nuevoComentario, setNuevoComentario] = useState('');
+  const [archivosComentario, setArchivosComentario] = useState([]);
+  const [enviandoComentario, setEnviandoComentario] = useState(false);
+
+  // El `tipo` y las `evidencias` de cada ítem se copian tal cual del dato de origen, sin
+  // reinterpretarlos: un comentario libre siempre nace con tipo 'comentario' (nunca toca una
+  // entrada de Reporte), y una entrada de Reporte conserva su `entrada.tipo` y SU PROPIO
+  // arreglo de evidencias (no se comparten entre ítems ni se recalculan) — así un rechazo
+  // jamás puede terminar mostrado como comentario libre ni viceversa, y una evidencia nunca
+  // queda asociada a una entrada que no sea la suya.
+  function fusionarActividad(comentarios, reportes) {
+    const itemsComentario = comentarios.map((c) => ({
+      id: `comentario-${c.id}`,
+      tipo: 'comentario',
+      fecha: c.fecha,
+      texto: c.texto,
+      evidencias: c.evidencias,
+    }));
+    const itemsReporte = reportes.flatMap((reporte) =>
+      reporte.entradas.map((entrada, idx) => ({
+        id: `reporte-${reporte.id}-${idx}`,
+        tipo: entrada.tipo,
+        fecha: entrada.fecha,
+        texto: entrada.comentario,
+        evidencias: entrada.evidencias,
+        porAdmin: entrada.porAdmin,
+      })),
+    );
+    return [...itemsComentario, ...itemsReporte].sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+  }
+
+  async function cargarActividad() {
+    setCargandoActividad(true);
+    try {
+      const [comentarios, reportes] = await Promise.all([
+        apiFetch(`/criterios/${criterio.id}/comentarios`),
+        apiFetch(`/criterios/${criterio.id}/reportes`),
+      ]);
+      setActividad(fusionarActividad(comentarios, reportes));
+    } catch (err) {
+      setErrorActividad(err.message);
+    } finally {
+      setCargandoActividad(false);
+    }
+  }
+
+  useEffect(() => {
+    if (mostrarActividad) cargarActividad();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mostrarActividad]);
+
+  // Los archivos seleccionados por el picker y los pegados desde el portapapeles conviven
+  // en el mismo estado `archivosComentario` — una imagen pegada no aparece en el
+  // <input type="file"> nativo, así que esta lista propia (con chips removibles en el
+  // render) es la única forma de que quien comenta vea confirmado que quedó adjunta.
+  function agregarArchivos(nuevos) {
+    setArchivosComentario((actuales) => [...actuales, ...nuevos]);
+  }
+
+  function quitarArchivo(index) {
+    setArchivosComentario((actuales) => actuales.filter((_, i) => i !== index));
+  }
+
+  function onPasteComentario(e) {
+    const imagenes = Array.from(e.clipboardData?.items || [])
+      .filter((item) => item.type.startsWith('image/'))
+      .map((item) => item.getAsFile())
+      .filter(Boolean);
+    if (imagenes.length > 0) agregarArchivos(imagenes);
+  }
+
+  async function enviarComentario(e) {
+    e.preventDefault();
+    setErrorActividad('');
+    setEnviandoComentario(true);
+    try {
+      const formData = new FormData();
+      formData.append('texto', nuevoComentario);
+      for (const archivo of archivosComentario) formData.append('evidencias', archivo);
+      await apiFetch(`/criterios/${criterio.id}/comentarios`, { method: 'POST', body: formData });
+      setNuevoComentario('');
+      setArchivosComentario([]);
+      await cargarActividad();
+    } catch (err) {
+      setErrorActividad(err.message);
+    } finally {
+      setEnviandoComentario(false);
+    }
+  }
 
   async function marcar(columnaNombre, accion) {
     setError('');
@@ -469,10 +557,14 @@ function CriterioRow({ criterio, columnasCheck, onCambio }) {
           />
           <button
             type="button"
-            onClick={() => setMostrarHistorico(true)}
-            className="font-label-md text-[12px] font-bold text-on-surface-variant underline decoration-dotted hover:text-primary"
+            onClick={() => setMostrarActividad((v) => !v)}
+            className="flex items-center gap-0.5 font-label-md text-[12px] font-bold text-on-surface-variant underline decoration-dotted hover:text-primary"
           >
-            Histórico
+            Actividad
+            <Icon
+              name="expand_more"
+              className={`text-[16px] transition-transform ${mostrarActividad ? 'rotate-180' : ''}`}
+            />
           </button>
           <button
             type="button"
@@ -520,6 +612,96 @@ function CriterioRow({ criterio, columnasCheck, onCambio }) {
           );
         })}
       </div>
+      {mostrarActividad && (
+        <div className="mt-3 space-y-3 border-t border-outline-variant/40 pt-3">
+          {cargandoActividad && (
+            <p className="font-body text-body-md text-on-surface-variant">Cargando actividad…</p>
+          )}
+          {errorActividad && <p className="font-body text-body-md text-error">{errorActividad}</p>}
+          {!cargandoActividad && actividad.length === 0 && (
+            <p className="font-body text-body-md italic text-on-surface-variant/70">Sin actividad todavía.</p>
+          )}
+          <ul className="space-y-2">
+            {actividad.map((item) => (
+              <li key={item.id} className="flex items-start gap-2 rounded-lg bg-surface-container-low/60 p-3">
+                <Icon
+                  name={ACTIVIDAD_ICON[item.tipo] || 'chat_bubble'}
+                  className={`mt-0.5 text-[16px] ${ACTIVIDAD_COLOR[item.tipo] || 'text-on-surface-variant'}`}
+                />
+                <div className="min-w-0 flex-1">
+                  <p
+                    className={`font-label-md text-[11px] font-bold uppercase tracking-wide ${
+                      ACTIVIDAD_COLOR[item.tipo] || 'text-on-surface-variant'
+                    }`}
+                  >
+                    {ACTIVIDAD_LABEL[item.tipo] || item.tipo}
+                    {item.porAdmin && (
+                      <span className="ml-2 font-label-md text-[11px] font-normal normal-case text-amber-600">
+                        (acción administrativa)
+                      </span>
+                    )}
+                  </p>
+                  <p className="font-label-md text-[11px] text-on-surface-variant/70">
+                    {new Date(item.fecha).toLocaleString()}
+                  </p>
+                  {item.texto && (
+                    <p className="mt-1 whitespace-pre-wrap font-body text-body-md text-on-surface">{item.texto}</p>
+                  )}
+                  {item.evidencias?.map((ev) => (
+                    <EvidenciaPreview key={ev.archivo} evidencia={ev} />
+                  ))}
+                </div>
+              </li>
+            ))}
+          </ul>
+          <form onSubmit={enviarComentario} className="space-y-2">
+            <textarea
+              className={CAMPO_INPUT}
+              placeholder="Agregar un comentario… (podés pegar una imagen con Ctrl+V)"
+              rows={2}
+              value={nuevoComentario}
+              onChange={(e) => setNuevoComentario(e.target.value)}
+              onPaste={onPasteComentario}
+              required
+            />
+            {archivosComentario.length > 0 && (
+              <ul className="flex flex-wrap gap-2">
+                {archivosComentario.map((archivo, idx) => (
+                  <li
+                    key={idx}
+                    className="flex items-center gap-1 rounded-full bg-icon-bg px-3 py-1 font-label-md text-[11px] font-bold text-primary"
+                  >
+                    {archivo.name}
+                    <button
+                      type="button"
+                      onClick={() => quitarArchivo(idx)}
+                      title="Quitar archivo"
+                      className="text-primary/70 hover:text-error"
+                    >
+                      <Icon name="close" className="text-[14px]" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="flex items-center justify-between gap-2">
+              <input
+                type="file"
+                multiple
+                accept="image/png,image/jpeg,image/webp,video/mp4,video/webm"
+                onChange={(e) => {
+                  agregarArchivos(Array.from(e.target.files));
+                  e.target.value = '';
+                }}
+                className="block flex-1 font-body text-body-md text-on-surface-variant file:mr-3 file:rounded-full file:border-0 file:bg-icon-bg file:px-4 file:py-2 file:font-label-md file:font-bold file:text-primary"
+              />
+              <Button type="submit" variant="primary" disabled={enviandoComentario} className="flex-shrink-0">
+                {enviandoComentario ? 'Enviando…' : 'Comentar'}
+              </Button>
+            </div>
+          </form>
+        </div>
+      )}
       {modalColumna && (
         <RechazarModal
           criterioId={criterio.id}
@@ -527,9 +709,6 @@ function CriterioRow({ criterio, columnasCheck, onCambio }) {
           onClose={() => setModalColumna(null)}
           onRechazado={onCambio}
         />
-      )}
-      {mostrarHistorico && (
-        <HistoricoDrawer criterioId={criterio.id} onClose={() => setMostrarHistorico(false)} />
       )}
       <ConfirmDialog
         open={confirmandoEliminar}

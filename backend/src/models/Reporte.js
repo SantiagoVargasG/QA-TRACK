@@ -1,13 +1,5 @@
 const { Schema, model } = require('mongoose');
-
-const evidenciaSchema = new Schema(
-  {
-    archivo: { type: String, required: true },
-    tipoMime: { type: String, required: true },
-    tamaño: { type: Number, required: true },
-  },
-  { _id: false },
-);
+const evidenciaSchema = require('./schemas/evidencia.schema');
 
 const entradaSchema = new Schema(
   {
