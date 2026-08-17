@@ -38,4 +38,28 @@ function stringParaFiltro(valor, nombreCampo) {
   return valor;
 }
 
-module.exports = { validarEmail, validarLongitudMax, booleanoOpcional, stringParaFiltro };
+// Para un campo de URL opcional que el servidor NUNCA va a fetch() (ej. un link de diseño
+// que solo abre el navegador del usuario al hacer clic): valida formato y protocolo http(s)
+// nada más. A diferencia de la URL de un webhook (services/webhook.service.js#validarUrl),
+// no necesita resolución DNS ni el guard anti-SSRF — ese guard existe porque el SERVIDOR es
+// quien hace la petición saliente; acá nunca lo hace, así que agregarlo sería validación sin
+// motivo real. `''` limpia el campo (devuelve ''); `undefined` deja el valor sin tocar.
+function validarUrlOpcional(valor, nombreCampo) {
+  if (valor === undefined) return undefined;
+  if (typeof valor !== 'string') throw new ApiError(400, `${nombreCampo} debe ser texto`);
+  if (valor === '') return '';
+
+  validarLongitudMax(valor, nombreCampo, 500);
+  let parsed;
+  try {
+    parsed = new URL(valor);
+  } catch {
+    throw new ApiError(400, `${nombreCampo} debe ser una URL http(s) válida`);
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new ApiError(400, `${nombreCampo} debe ser una URL http(s) válida`);
+  }
+  return valor;
+}
+
+module.exports = { validarEmail, validarLongitudMax, booleanoOpcional, stringParaFiltro, validarUrlOpcional };

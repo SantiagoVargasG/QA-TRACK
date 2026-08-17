@@ -144,6 +144,65 @@ describe('historias: código HU-N, CRUD, capacidad gestionar_contenido y aislami
     assert.equal(resp.status, 404);
   });
 
+  it('enlace es opcional: se puede crear sin él, con un formato válido rechaza si es inválido', async () => {
+    const sinEnlace = await request(app)
+      .post(`/api/requerimientos/${requerimientoId}/historias`)
+      .set('Authorization', `Bearer ${base.tokens.admin}`)
+      .send({ texto: 'Sin enlace' });
+    assert.equal(sinEnlace.status, 201);
+    assert.equal(sinEnlace.body.enlace, undefined);
+
+    const conEnlace = await request(app)
+      .post(`/api/requerimientos/${requerimientoId}/historias`)
+      .set('Authorization', `Bearer ${base.tokens.admin}`)
+      .send({ texto: 'Con enlace', enlace: 'https://figma.com/file/abc' });
+    assert.equal(conEnlace.status, 201);
+    assert.equal(conEnlace.body.enlace, 'https://figma.com/file/abc');
+
+    const formatoInvalido = await request(app)
+      .post(`/api/requerimientos/${requerimientoId}/historias`)
+      .set('Authorization', `Bearer ${base.tokens.admin}`)
+      .send({ texto: 'Enlace roto', enlace: 'no-es-una-url' });
+    assert.equal(formatoInvalido.status, 400);
+
+    const protocoloInvalido = await request(app)
+      .post(`/api/requerimientos/${requerimientoId}/historias`)
+      .set('Authorization', `Bearer ${base.tokens.admin}`)
+      .send({ texto: 'Enlace ftp', enlace: 'ftp://servidor/archivo' });
+    assert.equal(protocoloInvalido.status, 400);
+  });
+
+  it('enlace se puede editar y también limpiar (string vacío lo quita, sin mandarlo lo deja igual)', async () => {
+    const h = await request(app)
+      .post(`/api/requerimientos/${requerimientoId}/historias`)
+      .set('Authorization', `Bearer ${base.tokens.admin}`)
+      .send({ texto: 'Historia editable', enlace: 'https://drive.google.com/doc1' });
+
+    const soloTexto = await request(app)
+      .put(`/api/requerimientos/${requerimientoId}/historias/${h.body.id}`)
+      .set('Authorization', `Bearer ${base.tokens.admin}`)
+      .send({ texto: 'Historia editable (renombrada)' });
+    assert.equal(soloTexto.status, 200);
+    assert.equal(
+      soloTexto.body.enlace,
+      'https://drive.google.com/doc1',
+      'no mandar enlace en el body no debe borrar el que ya tenía',
+    );
+
+    const cambiado = await request(app)
+      .put(`/api/requerimientos/${requerimientoId}/historias/${h.body.id}`)
+      .set('Authorization', `Bearer ${base.tokens.admin}`)
+      .send({ enlace: 'https://drive.google.com/doc2' });
+    assert.equal(cambiado.body.enlace, 'https://drive.google.com/doc2');
+
+    const limpiado = await request(app)
+      .put(`/api/requerimientos/${requerimientoId}/historias/${h.body.id}`)
+      .set('Authorization', `Bearer ${base.tokens.admin}`)
+      .send({ enlace: '' });
+    assert.equal(limpiado.status, 200);
+    assert.equal(limpiado.body.enlace, undefined, 'enlace: "" debe limpiar el campo');
+  });
+
   it('soft-delete: la historia eliminada desaparece del listado', async () => {
     const h = await request(app)
       .post(`/api/requerimientos/${requerimientoId}/historias`)

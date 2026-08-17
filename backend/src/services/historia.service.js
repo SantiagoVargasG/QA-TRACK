@@ -1,6 +1,6 @@
 const Historia = require('../models/Historia');
 const { ApiError } = require('../middleware/errorHandler');
-const { validarLongitudMax } = require('../utils/validacion');
+const { validarLongitudMax, validarUrlOpcional } = require('../utils/validacion');
 const {
   verificarCapacidadEnProyecto,
   cargarRequerimientoConAcceso,
@@ -13,6 +13,7 @@ function historiaPublica(historia) {
     requerimientoId: historia.requerimientoId,
     codigo: historia.codigo,
     texto: historia.texto,
+    enlace: historia.enlace || undefined,
     orden: historia.orden,
     activo: historia.activo,
   };
@@ -24,12 +25,13 @@ async function listar(tenantId, requerimientoId, auth) {
   return historias.map(historiaPublica);
 }
 
-async function crear(tenantId, requerimientoId, auth, { texto }) {
+async function crear(tenantId, requerimientoId, auth, { texto, enlace }) {
   const { requerimiento, proyecto } = await cargarRequerimientoConAcceso(tenantId, requerimientoId, auth);
   await verificarCapacidadEnProyecto(proyecto, auth, 'gestionar_contenido');
 
   if (!texto) throw new ApiError(400, 'texto es requerido');
   validarLongitudMax(texto, 'texto', 1000);
+  const enlaceValidado = validarUrlOpcional(enlace, 'enlace');
 
   const ultimo = await Historia.findOne({ tenantId, requerimientoId }).sort({ orden: -1 });
   const orden = ultimo ? ultimo.orden + 1 : 1;
@@ -50,6 +52,7 @@ async function crear(tenantId, requerimientoId, auth, { texto }) {
         requerimientoId,
         codigo,
         texto,
+        enlace: enlaceValidado || undefined,
         orden,
       });
       return historiaPublica(historia);
@@ -60,7 +63,7 @@ async function crear(tenantId, requerimientoId, auth, { texto }) {
   }
 }
 
-async function actualizar(tenantId, requerimientoId, historiaId, auth, { texto }) {
+async function actualizar(tenantId, requerimientoId, historiaId, auth, { texto, enlace }) {
   const { historia, proyecto } = await cargarHistoriaConAcceso(tenantId, historiaId, auth);
   if (historia.requerimientoId.toString() !== requerimientoId) throw new ApiError(404, 'Historia no encontrada');
   await verificarCapacidadEnProyecto(proyecto, auth, 'gestionar_contenido');
@@ -69,6 +72,10 @@ async function actualizar(tenantId, requerimientoId, historiaId, auth, { texto }
     validarLongitudMax(texto, 'texto', 1000);
     historia.texto = texto;
   }
+  // enlace sigue el mismo criterio que texto (undefined = no tocar), con un caso extra:
+  // '' limpia el campo explícitamente (permite quitar un enlace ya guardado).
+  const enlaceValidado = validarUrlOpcional(enlace, 'enlace');
+  if (enlaceValidado !== undefined) historia.enlace = enlaceValidado || undefined;
 
   await historia.save();
   return historiaPublica(historia);

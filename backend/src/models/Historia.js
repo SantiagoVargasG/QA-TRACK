@@ -9,6 +9,11 @@ const historiaSchema = new Schema(
     requerimientoId: { type: Schema.Types.ObjectId, ref: 'Requerimiento', required: true },
     codigo: { type: String, required: true },
     texto: { type: String, required: true, trim: true },
+    // Enlace opcional a un diseño/recurso externo (Figma, doc, etc.) — nunca lo resuelve ni
+    // lo hace fetch() el servidor, solo lo abre el navegador del usuario al hacer clic, por
+    // eso su validación (ver validarUrlOpcional en utils/validacion.js) es de formato, sin
+    // el chequeo DNS/SSRF que sí necesita la URL de un webhook.
+    enlace: { type: String, trim: true },
     orden: { type: Number, required: true },
     activo: { type: Boolean, default: true },
   },
