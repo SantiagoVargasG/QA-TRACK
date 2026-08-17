@@ -114,17 +114,26 @@ function DashboardPage() {
           onChange={(e) => setForm((f) => ({ ...f, nombre: e.target.value }))}
           required
         />
-        <select
-          className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
-          value={form.icono}
-          onChange={(e) => setForm((f) => ({ ...f, icono: e.target.value }))}
-        >
-          {ICONOS.map((i) => (
-            <option key={i} value={i}>
-              {i}
-            </option>
-          ))}
-        </select>
+        <div>
+          <label htmlFor="icono-modulo" className="mb-1 block text-xs font-medium text-gray-600">
+            Ícono del módulo
+          </label>
+          <div className="relative">
+            <select
+              id="icono-modulo"
+              className="w-full appearance-none rounded border border-gray-300 px-3 py-2 pr-8 text-sm"
+              value={form.icono}
+              onChange={(e) => setForm((f) => ({ ...f, icono: e.target.value }))}
+            >
+              {ICONOS.map((i) => (
+                <option key={i} value={i}>
+                  {i}
+                </option>
+              ))}
+            </select>
+            <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">▾</span>
+          </div>
+        </div>
         <textarea
           className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
           placeholder="Descripción (opcional)"

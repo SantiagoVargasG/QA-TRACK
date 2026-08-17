@@ -33,7 +33,7 @@ function TopBar({ proyectos, proyectoActualId, onCambiarProyecto, onGestionarPro
   return (
     <header className="fixed inset-x-0 top-0 z-50 flex h-16 items-center justify-between border-b border-outline-variant bg-surface-container-lowest px-6 card-shadow">
       <div className="flex items-center gap-6">
-        <Logo />
+        <Logo size="sm" />
         <label className="hidden items-center gap-2 rounded-lg border border-outline-variant bg-surface-container-low px-3 py-1.5 md:flex">
           <Icon name="folder" className="text-lg text-on-surface-variant" />
           <select

@@ -7,6 +7,9 @@ const VARIANTES = {
     'bg-surface-container-high text-on-surface hover:bg-outline-variant/40 active:scale-95',
   ghost: 'text-primary hover:bg-primary/5 active:scale-95',
   danger: 'text-error hover:bg-error/5 active:scale-95',
+  // Borde violeta sin relleno — para acciones secundarias de "agregar" que no deben
+  // competir en peso visual con el botón primario de la pantalla (ej. "Agregar HU").
+  outline: 'border-[1.5px] border-primary bg-transparent text-primary hover:bg-primary/5 active:scale-95',
 };
 
 // Botón base del sistema de diseño: siempre tipo píldora (rounded-full), variantes de

@@ -18,19 +18,26 @@ function IconOjo({ visible }) {
   );
 }
 
+const CLASE_INPUT_DEFAULT = 'w-full rounded border border-gray-300 px-3 py-2 text-sm';
+
 // Input de contraseña reutilizable con ícono de mostrar/ocultar. Cada instancia mantiene su
 // propio estado de visibilidad (no hay uno global) para que alternar un campo no afecte a otros.
-function PasswordInput({ id, value, onChange, placeholder, required, minLength, autoComplete, className = '' }) {
+// `className`, si se pasa, REEMPLAZA el estilo base del input (no se concatena): dos clases
+// Tailwind que tocan la misma propiedad (ej. "rounded" vs "rounded-xl") no se pueden mezclar de
+// forma confiable por especificidad, así que un caller que quiere un look distinto (ver
+// UsuariosPage) debe pasar el set completo de clases, no solo la diferencia.
+function PasswordInput({ id, value, onChange, placeholder, required, minLength, autoComplete, className }) {
   const [visible, setVisible] = useState(false);
   const idGenerado = useId();
   const inputId = id || idGenerado;
+  const claseInput = className || CLASE_INPUT_DEFAULT;
 
   return (
     <div className="relative">
       <input
         id={inputId}
         type={visible ? 'text' : 'password'}
-        className={`w-full rounded border border-gray-300 px-3 py-2 pr-10 text-sm ${className}`}
+        className={`${claseInput} pr-10`}
         value={value}
         onChange={onChange}
         placeholder={placeholder}
