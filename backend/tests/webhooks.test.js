@@ -508,35 +508,35 @@ describe('webhooks: CRUD, disparo por evento, reintentos y reportar-prueba', () 
       const sinCapacidad = await request(app)
         .post(`/api/proyectos/${proyectoId}/reportar-prueba`)
         .set('Authorization', `Bearer ${base.tokens.dev}`)
-        .send({ moduloId, historiaIds: [historiaId], resultado: 'exitosa' });
+        .send({ modulos: [{ moduloId, historiaIds: [historiaId] }], resultado: 'exitosa' });
       assert.equal(sinCapacidad.status, 403);
 
       const conCapacidad = await request(app)
         .post(`/api/proyectos/${proyectoId}/reportar-prueba`)
         .set('Authorization', `Bearer ${base.tokens.qa}`)
-        .send({ moduloId, historiaIds: [historiaId], resultado: 'exitosa' });
+        .send({ modulos: [{ moduloId, historiaIds: [historiaId] }], resultado: 'exitosa' });
       assert.equal(conCapacidad.status, 200);
     });
 
-    it('valida moduloId, historiaIds y resultado', async () => {
+    it('valida moduloId (en cada elemento de modulos), historiaIds y resultado', async () => {
       const { historiaId } = await crearHistoriaConCriterio('HU validación');
 
       const moduloInvalido = await request(app)
         .post(`/api/proyectos/${proyectoId}/reportar-prueba`)
         .set('Authorization', `Bearer ${base.tokens.qa}`)
-        .send({ moduloId: '507f1f77bcf86cd799439011', historiaIds: [historiaId], resultado: 'exitosa' });
+        .send({ modulos: [{ moduloId: '507f1f77bcf86cd799439011', historiaIds: [historiaId] }], resultado: 'exitosa' });
       assert.equal(moduloInvalido.status, 400);
 
       const sinHistorias = await request(app)
         .post(`/api/proyectos/${proyectoId}/reportar-prueba`)
         .set('Authorization', `Bearer ${base.tokens.qa}`)
-        .send({ moduloId, historiaIds: [], resultado: 'exitosa' });
+        .send({ modulos: [{ moduloId, historiaIds: [] }], resultado: 'exitosa' });
       assert.equal(sinHistorias.status, 400);
 
       const resultadoInvalido = await request(app)
         .post(`/api/proyectos/${proyectoId}/reportar-prueba`)
         .set('Authorization', `Bearer ${base.tokens.qa}`)
-        .send({ moduloId, historiaIds: [historiaId], resultado: 'mas_o_menos' });
+        .send({ modulos: [{ moduloId, historiaIds: [historiaId] }], resultado: 'mas_o_menos' });
       assert.equal(resultadoInvalido.status, 400);
 
       const otroModulo = await request(app)
@@ -546,7 +546,7 @@ describe('webhooks: CRUD, disparo por evento, reintentos y reportar-prueba', () 
       const historiaDeOtroModulo = await request(app)
         .post(`/api/proyectos/${proyectoId}/reportar-prueba`)
         .set('Authorization', `Bearer ${base.tokens.qa}`)
-        .send({ moduloId: otroModulo.body.id, historiaIds: [historiaId], resultado: 'exitosa' });
+        .send({ modulos: [{ moduloId: otroModulo.body.id, historiaIds: [historiaId] }], resultado: 'exitosa' });
       assert.equal(historiaDeOtroModulo.status, 400);
     });
 
@@ -570,15 +570,15 @@ describe('webhooks: CRUD, disparo por evento, reintentos y reportar-prueba', () 
         .post(`/api/proyectos/${proyectoId}/reportar-prueba`)
         .set('Authorization', `Bearer ${base.tokens.qa}`)
         .send({
-          moduloId,
-          historiaIds: [historiaId, historiaIdOk],
+          modulos: [{ moduloId, historiaIds: [historiaId, historiaIdOk] }],
           resultado: 'con_errores',
           comentario: 'Probado en staging',
         });
       assert.equal(resp.status, 200);
       assert.equal(resp.body.evento, 'prueba_reportada');
       assert.equal(resp.body.resultado, 'con_errores');
-      assert.equal(resp.body.historias.length, 2);
+      assert.equal(resp.body.modulos.length, 1);
+      assert.equal(resp.body.modulos[0].historias.length, 2);
       assert.equal(resp.body.criterios_rechazados.length, 1);
       assert.equal(resp.body.criterios_rechazados[0].comentario, 'Segundo comentario (más reciente)');
       assert.equal(resp.body.webhooksNotificados, 1);
@@ -591,14 +591,76 @@ describe('webhooks: CRUD, disparo por evento, reintentos y reportar-prueba', () 
     it('sin token -> 401; id de proyecto malformado -> 400', async () => {
       const sinToken = await request(app)
         .post(`/api/proyectos/${proyectoId}/reportar-prueba`)
-        .send({ moduloId, historiaIds: ['507f1f77bcf86cd799439011'], resultado: 'exitosa' });
+        .send({ modulos: [{ moduloId, historiaIds: ['507f1f77bcf86cd799439011'] }], resultado: 'exitosa' });
       assert.equal(sinToken.status, 401);
 
       const idMalformado = await request(app)
         .post('/api/proyectos/no-es-un-objectid/reportar-prueba')
         .set('Authorization', `Bearer ${base.tokens.qa}`)
-        .send({ moduloId, historiaIds: ['507f1f77bcf86cd799439011'], resultado: 'exitosa' });
+        .send({ modulos: [{ moduloId, historiaIds: ['507f1f77bcf86cd799439011'] }], resultado: 'exitosa' });
       assert.equal(idMalformado.status, 400);
+    });
+
+    it('agregar múltiples módulos en un solo reporte (nuevo agregador)', async () => {
+      await crearWebhookDirecto({ eventos: ['prueba_reportada'] });
+
+      // Crear un segundo módulo
+      const modulo2 = await request(app)
+        .post(`/api/proyectos/${proyectoId}/modulos`)
+        .set('Authorization', `Bearer ${base.tokens.admin}`)
+        .send({ nombre: 'Segundo módulo' });
+      const moduloId2 = modulo2.body.id;
+
+      const req2 = await request(app)
+        .post(`/api/modulos/${moduloId2}/requerimientos`)
+        .set('Authorization', `Bearer ${base.tokens.admin}`)
+        .send({ titulo: 'Editar producto', descripcionResumida: 'desc' });
+      const requerimientoId2 = req2.body.id;
+
+      // Historias en módulo 1
+      const { historiaId: hu1, criterioId: ca1 } = await crearHistoriaConCriterio('HU1 en M1');
+      await finalizar(ca1);
+      await rechazar(ca1, 'Problema en M1');
+
+      // Historias en módulo 2
+      const hu2Resp = await request(app)
+        .post(`/api/requerimientos/${requerimientoId2}/historias`)
+        .set('Authorization', `Bearer ${base.tokens.admin}`)
+        .send({ texto: 'HU1 en M2' });
+      const hu2 = hu2Resp.body.id;
+      const ca2Resp = await request(app)
+        .post(`/api/historias/${hu2}/criterios`)
+        .set('Authorization', `Bearer ${base.tokens.admin}`)
+        .send({ texto: 'Debe funcionar' });
+      const ca2 = ca2Resp.body.id;
+      await finalizar(ca2, base.tokens.dev);
+      await rechazar(ca2, 'Problema en M2', base.tokens.qa);
+
+      // Reportar ambos módulos de una vez
+      const resp = await request(app)
+        .post(`/api/proyectos/${proyectoId}/reportar-prueba`)
+        .set('Authorization', `Bearer ${base.tokens.qa}`)
+        .send({
+          modulos: [
+            { moduloId, historiaIds: [hu1] },
+            { moduloId: moduloId2, historiaIds: [hu2] },
+          ],
+          resultado: 'con_errores',
+          comentario: 'Errores en ambos módulos',
+        });
+      assert.equal(resp.status, 200);
+      assert.equal(resp.body.evento, 'prueba_reportada');
+      assert.equal(resp.body.modulos.length, 2);
+      assert.equal(resp.body.modulos[0].nombre, 'Catálogo');
+      assert.equal(resp.body.modulos[1].nombre, 'Segundo módulo');
+      assert.equal(resp.body.criterios_rechazados.length, 2);
+      assert.ok(resp.body.criterios_rechazados[0].hu.match(/^HU-\d+$/), 'primer criterio debe tener código HU-N');
+      assert.equal(resp.body.criterios_rechazados[0].comentario, 'Problema en M1');
+      assert.equal(resp.body.criterios_rechazados[1].comentario, 'Problema en M2');
+
+      await esperarHasta(() => mock.requests.length >= 1);
+      assert.equal(mock.requests[0].body.modulos.length, 2);
+      assert.equal(mock.requests[0].body.criterios_rechazados.length, 2);
     });
   });
 });

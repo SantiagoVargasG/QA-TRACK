@@ -264,23 +264,15 @@ async function reportarHistoria(tenantId, historiaId, auth) {
 
 // POST /proyectos/:id/reportar-prueba (PRD sección 7.3): acción manual disponible para
 // roles con aprobar_rechazar. Arma el payload estándar de la sección 7.4 y dispara el evento
-// prueba_reportada a los webhooks suscritos del proyecto.
-async function reportarPrueba(tenantId, proyectoId, auth, { moduloId, historiaIds, resultado, comentario }) {
+// prueba_reportada a los webhooks suscritos del proyecto. Acepta múltiples módulos (agregador).
+async function reportarPrueba(tenantId, proyectoId, auth, { modulos, resultado, comentario }) {
   const proyecto = await cargarProyectoConAcceso(tenantId, proyectoId, auth);
   await verificarCapacidadEnProyecto(proyecto, auth, 'aprobar_rechazar');
 
-  stringParaFiltro(moduloId, 'moduloId');
-  if (!moduloId) throw new ApiError(400, 'moduloId es requerido');
-  const modulo = await Modulo.findOne({ _id: moduloId, tenantId, proyectoId: proyecto._id, activo: true });
-  if (!modulo) throw new ApiError(400, 'el módulo indicado no existe en este proyecto');
-
-  if (!Array.isArray(historiaIds) || historiaIds.length === 0) {
-    throw new ApiError(400, 'historiaIds debe ser un arreglo con al menos un elemento');
+  // Validar formato: modulos debe ser un array de {moduloId, historiaIds}
+  if (!Array.isArray(modulos) || modulos.length === 0) {
+    throw new ApiError(400, 'modulos debe ser un arreglo con al menos un elemento');
   }
-  historiaIds.forEach((id) => {
-    stringParaFiltro(id, 'historiaIds');
-    if (!id) throw new ApiError(400, 'historiaIds debe contener solo ids no vacíos');
-  });
 
   if (!RESULTADOS_PRUEBA_VALIDOS.includes(resultado)) {
     throw new ApiError(400, `resultado inválido: ${resultado}`);
@@ -290,55 +282,88 @@ async function reportarPrueba(tenantId, proyectoId, auth, { moduloId, historiaId
     validarLongitudMax(comentario, 'comentario', 2000);
   }
 
-  const historias = await Historia.find({
-    _id: { $in: historiaIds },
-    tenantId,
-    proyectoId: proyecto._id,
-    activo: true,
-  }).sort({ orden: 1 });
-  if (historias.length !== new Set(historiaIds).size) {
-    throw new ApiError(400, 'una o más historias no existen en este proyecto');
-  }
+  // Validar y compilar cada módulo + sus historias
+  const modulosCompilados = [];
+  const criteriosRechazadosPorModulo = {};
 
-  const requerimientoIds = [...new Set(historias.map((h) => h.requerimientoId.toString()))];
-  const requerimientos = await Requerimiento.find({
-    _id: { $in: requerimientoIds },
-    tenantId,
-    moduloId: modulo._id,
-  });
-  if (requerimientos.length !== requerimientoIds.length) {
-    throw new ApiError(400, 'las historias seleccionadas no pertenecen todas al módulo indicado');
-  }
-
-  const criteriosRechazados = [];
   // eslint-disable-next-line no-restricted-syntax
-  for (const historia of historias) {
-    // eslint-disable-next-line no-await-in-loop
-    const criterios = await Criterio.find({
-      tenantId,
-      historiaId: historia._id,
-      activo: true,
-      estado: 'RECHAZADO',
-    });
-    // eslint-disable-next-line no-restricted-syntax
-    for (const criterio of criterios) {
-      // eslint-disable-next-line no-await-in-loop
-      const reporte = await Reporte.findOne({ tenantId, criterioId: criterio._id }).sort({ createdAt: -1 });
-      const ultimoRechazo = reporte ? [...reporte.entradas].reverse().find((e) => e.tipo === 'rechazo') : null;
-      criteriosRechazados.push({
-        hu: historia.codigo,
-        criterio: criterio.texto,
-        comentario: ultimoRechazo?.comentario || '',
-      });
+  for (const modItem of modulos) {
+    stringParaFiltro(modItem.moduloId, 'modulos[].moduloId');
+    if (!modItem.moduloId) throw new ApiError(400, 'cada módulo debe tener moduloId');
+
+    const modulo = await Modulo.findOne({ _id: modItem.moduloId, tenantId, proyectoId: proyecto._id, activo: true });
+    if (!modulo) throw new ApiError(400, `el módulo "${modItem.moduloId}" no existe en este proyecto`);
+
+    if (!Array.isArray(modItem.historiaIds) || modItem.historiaIds.length === 0) {
+      throw new ApiError(400, `historiaIds vacío para módulo ${modulo.nombre}`);
     }
+    modItem.historiaIds.forEach((id) => {
+      stringParaFiltro(id, 'modulos[].historiaIds');
+      if (!id) throw new ApiError(400, `historiaIds debe contener solo ids no vacíos (módulo ${modulo.nombre})`);
+    });
+
+    // eslint-disable-next-line no-await-in-loop
+    const historias = await Historia.find({
+      _id: { $in: modItem.historiaIds },
+      tenantId,
+      proyectoId: proyecto._id,
+      activo: true,
+    }).sort({ orden: 1 });
+    if (historias.length !== new Set(modItem.historiaIds).size) {
+      throw new ApiError(400, `una o más historias no existen en el proyecto (módulo ${modulo.nombre})`);
+    }
+
+    // Validar que todas las historias pertenecen a este módulo
+    const requerimientoIds = [...new Set(historias.map((h) => h.requerimientoId.toString()))];
+    // eslint-disable-next-line no-await-in-loop
+    const requerimientos = await Requerimiento.find({
+      _id: { $in: requerimientoIds },
+      tenantId,
+      moduloId: modulo._id,
+    });
+    if (requerimientos.length !== requerimientoIds.length) {
+      throw new ApiError(400, `las historias seleccionadas no pertenecen todas al módulo ${modulo.nombre}`);
+    }
+
+    // Compilar criterios rechazados para este módulo
+    const criteriosDelModulo = [];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const historia of historias) {
+      // eslint-disable-next-line no-await-in-loop
+      const criterios = await Criterio.find({
+        tenantId,
+        historiaId: historia._id,
+        activo: true,
+        estado: 'RECHAZADO',
+      });
+      // eslint-disable-next-line no-restricted-syntax
+      for (const criterio of criterios) {
+        // eslint-disable-next-line no-await-in-loop
+        const reporte = await Reporte.findOne({ tenantId, criterioId: criterio._id }).sort({ createdAt: -1 });
+        const ultimoRechazo = reporte ? [...reporte.entradas].reverse().find((e) => e.tipo === 'rechazo') : null;
+        criteriosDelModulo.push({
+          hu: historia.codigo,
+          criterio: criterio.texto,
+          comentario: ultimoRechazo?.comentario || '',
+        });
+      }
+    }
+
+    modulosCompilados.push({
+      nombre: modulo.nombre,
+      historias: historias.map((h) => `${h.codigo}: ${h.texto}`),
+    });
+    criteriosRechazadosPorModulo[modulo._id.toString()] = criteriosDelModulo;
   }
+
+  // Aplanar todos los criterios rechazados en un array único
+  const criteriosRechazados = Object.values(criteriosRechazadosPorModulo).flat();
 
   const usuario = await Usuario.findOne({ _id: auth.usuarioId, tenantId }).select('nombre');
   const contexto = {
     evento: 'prueba_reportada',
     proyecto: proyecto.nombre,
-    modulo: modulo.nombre,
-    historias: historias.map((h) => `${h.codigo}: ${h.texto}`),
+    modulos: modulosCompilados,
     resultado,
     criterios_rechazados: criteriosRechazados,
     comentario: comentario || undefined,
