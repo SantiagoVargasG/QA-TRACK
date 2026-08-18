@@ -78,7 +78,7 @@ function RegistroTenantPage() {
           </ul>
         </div>
         <p className="relative z-10 font-body text-label-md text-white/50">
-          © {new Date().getFullYear()} Mi Oiko Track. Todos los derechos reservados.
+          © {new Date().getFullYear()} QA Tracker. Todos los derechos reservados.
         </p>
       </aside>
 

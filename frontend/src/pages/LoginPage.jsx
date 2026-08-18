@@ -53,7 +53,7 @@ function LoginPage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-surface md:flex-row">
-      {/* Panel de marca: solo desktop, mismo Logo (isotipo real de Mi Oiko) que el resto de la app. */}
+      {/* Panel de marca: solo desktop, mismo Logo que el resto de la app. */}
       <aside className="relative hidden w-1/2 flex-col justify-between overflow-hidden p-16 brand-panel-gradient md:flex">
         <div
           aria-hidden="true"
@@ -78,7 +78,7 @@ function LoginPage() {
           </ul>
         </div>
         <p className="relative z-10 font-body text-label-md text-white/50">
-          © {new Date().getFullYear()} Mi Oiko Track. Todos los derechos reservados.
+          © {new Date().getFullYear()} QA Tracker. Todos los derechos reservados.
         </p>
       </aside>
 

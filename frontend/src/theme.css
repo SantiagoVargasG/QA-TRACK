@@ -1,9 +1,7 @@
 /*
- * Sistema de diseño "Mi Oiko Track": tokens de marca extraídos de la maqueta Stitch,
- * traducidos a variables CSS de Tailwind v4 (el proyecto es CSS-first, sin tailwind.config.js
- * — @theme registra cada token como utilidad de Tailwind automáticamente: --color-primary
- * genera bg-primary/text-primary/border-primary, etc.). Único archivo de tema: cualquier
- * ajuste de marca (color, tipografía, radio) se hace acá, no en los componentes.
+ * Sistema de diseño de QA Tracker: tokens de marca traducidos a variables CSS de Tailwind v4
+ * (proyecto CSS-first, sin tailwind.config.js). @theme registra cada token como utilidad
+ * de Tailwind automáticamente. Único archivo de tema: ajustes de marca se hacen acá.
  */
 @theme {
   /* Colores — subconjunto realmente usado por los componentes del sistema de diseño,
