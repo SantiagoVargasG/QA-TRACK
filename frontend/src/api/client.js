@@ -1,5 +1,9 @@
 const TOKEN_KEY = 'qa_tracker_token';
 
+// En producción, VITE_API_URL apunta al backend remoto (ej. Render)
+// En desarrollo, usa /api (proxy configurado en vite.config.js)
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
+
 function getToken() {
   return localStorage.getItem(TOKEN_KEY);
 }
@@ -46,7 +50,7 @@ async function apiFetch(path, { method = 'GET', body, auth = true } = {}) {
     if (token) headers.Authorization = `Bearer ${token}`;
   }
 
-  const res = await fetch(`/api${path}`, {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
     method,
     headers,
     body: esFormData ? body : body ? JSON.stringify(body) : undefined,
@@ -66,7 +70,7 @@ async function apiFetchBlob(path) {
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const res = await fetch(`/api${path}`, { headers });
+  const res = await fetch(`${API_BASE_URL}${path}`, { headers });
   if (!res.ok) {
     if (res.status === 401 && manejador401) manejador401();
     throw new Error(`Error ${res.status}`);
