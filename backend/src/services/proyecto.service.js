@@ -1,4 +1,5 @@
 const Proyecto = require('../models/Proyecto');
+const ProyectoBase = require('../models/ProyectoBase');
 const Usuario = require('../models/Usuario');
 const Rol = require('../models/Rol');
 const { ApiError } = require('../middleware/errorHandler');
@@ -8,11 +9,18 @@ const auditoriaService = require('./auditoria.service');
 
 const TIPOS_COLUMNA_VALIDOS = ['finalizado', 'aprobacion'];
 
-function proyectoPublico(proyecto) {
+// `basesPorId` (Map<string, nombre>) es opcional: solo listar() la arma con un batch fetch,
+// para no pagar una query extra por proyecto en el resto de las operaciones (crear/
+// actualizar/etc. no la necesitan de inmediato — el frontend refresca con cargarProyectos()
+// justo después de cualquier mutación).
+function proyectoPublico(proyecto, basesPorId) {
+  const proyectoBaseId = proyecto.proyectoBaseId || null;
   return {
     id: proyecto._id,
     nombre: proyecto.nombre,
     descripcion: proyecto.descripcion,
+    proyectoBaseId,
+    proyectoBaseNombre: proyectoBaseId && basesPorId ? basesPorId.get(String(proyectoBaseId)) ?? null : null,
     columnasCheck: proyecto.columnasCheck,
     equipo: proyecto.equipo,
     activo: proyecto.activo,
@@ -24,7 +32,19 @@ async function listar(tenantId, auth) {
     ? { tenantId, activo: true }
     : { tenantId, activo: true, 'equipo.usuarioId': auth.usuarioId };
   const proyectos = await Proyecto.find(filtro).sort({ createdAt: 1 });
-  return proyectos.map(proyectoPublico);
+
+  const baseIds = [...new Set(proyectos.filter((p) => p.proyectoBaseId).map((p) => String(p.proyectoBaseId)))];
+  const bases = baseIds.length
+    ? await ProyectoBase.find({ _id: { $in: baseIds }, tenantId, activo: true })
+    : [];
+  const basesPorId = new Map(bases.map((b) => [String(b._id), b.nombre]));
+
+  // Una sub-vista cuyo Proyecto Base fue inactivado se oculta del listado agrupado junto
+  // con él, sin escribir nada sobre el propio Proyecto (sigue accesible por URL directa) —
+  // ver proyectoBaseService.eliminar(). Reactivar la base la vuelve a mostrar de inmediato.
+  const visibles = proyectos.filter((p) => !p.proyectoBaseId || basesPorId.has(String(p.proyectoBaseId)));
+
+  return visibles.map((p) => proyectoPublico(p, basesPorId));
 }
 
 async function obtener(tenantId, proyectoId, auth) {
@@ -43,28 +63,55 @@ async function miembros(tenantId, proyectoId, auth) {
   return usuarios.map((u) => ({ id: u._id, nombre: u.nombre }));
 }
 
-async function crear(tenantId, { nombre, descripcion }) {
+async function crear(tenantId, { nombre, descripcion, proyectoBaseId, clonarDesdeProyectoId }) {
   if (!nombre) throw new ApiError(400, 'nombre es requerido');
   validarLongitudMax(nombre, 'nombre', 100);
   if (descripcion !== undefined) validarLongitudMax(descripcion, 'descripcion', 1000);
 
-  // Columnas de check por defecto (PRD 4.2): se asocian a los roles semilla "Dev" y "QA"
-  // si todavía existen con ese nombre; si el tenant ya los renombró, quedan sin rol
-  // asignado (rolId: null) y se completan luego vía PUT columnas-check.
-  const [rolDev, rolQA] = await Promise.all([
-    Rol.findOne({ tenantId, nombre: 'Dev' }),
-    Rol.findOne({ tenantId, nombre: 'QA' }),
-  ]);
+  let proyectoBaseIdValidado = null;
+  if (proyectoBaseId) {
+    stringParaFiltro(proyectoBaseId, 'proyectoBaseId');
+    const base = await ProyectoBase.findOne({ _id: proyectoBaseId, tenantId, activo: true });
+    if (!base) throw new ApiError(400, `proyectoBaseId ${proyectoBaseId} no existe en este tenant`);
+    proyectoBaseIdValidado = base._id;
+  }
+
+  // Clonar equipo/columnasCheck de un proyecto existente del mismo tenant: reutiliza
+  // configuración ya validada (los rolId/usuarioId de ese proyecto ya pasaron por
+  // actualizarEquipo/actualizarColumnasCheck en su momento), sin lógica de permisos nueva —
+  // requireAdmin ya gatea todo este endpoint, igual que la creación normal.
+  let equipoClonado = [];
+  let columnasCheckClonadas = null;
+  if (clonarDesdeProyectoId) {
+    stringParaFiltro(clonarDesdeProyectoId, 'clonarDesdeProyectoId');
+    const origen = await Proyecto.findOne({ _id: clonarDesdeProyectoId, tenantId, activo: true });
+    if (!origen) throw new ApiError(400, `clonarDesdeProyectoId ${clonarDesdeProyectoId} no existe en este tenant`);
+    equipoClonado = origen.equipo.map((m) => ({ usuarioId: m.usuarioId, rolId: m.rolId }));
+    columnasCheckClonadas = origen.columnasCheck.map((c) => ({ nombre: c.nombre, tipo: c.tipo, rolId: c.rolId }));
+  }
+
+  let columnasCheck = columnasCheckClonadas;
+  if (!columnasCheck) {
+    // Columnas de check por defecto (PRD 4.2): se asocian a los roles semilla "Dev" y "QA"
+    // si todavía existen con ese nombre; si el tenant ya los renombró, quedan sin rol
+    // asignado (rolId: null) y se completan luego vía PUT columnas-check.
+    const [rolDev, rolQA] = await Promise.all([
+      Rol.findOne({ tenantId, nombre: 'Dev' }),
+      Rol.findOne({ tenantId, nombre: 'QA' }),
+    ]);
+    columnasCheck = [
+      { nombre: 'Desarrollo', tipo: 'finalizado', rolId: rolDev ? rolDev._id : null },
+      { nombre: 'QA', tipo: 'aprobacion', rolId: rolQA ? rolQA._id : null },
+    ];
+  }
 
   const proyecto = await Proyecto.create({
     tenantId,
     nombre,
     descripcion: descripcion || '',
-    columnasCheck: [
-      { nombre: 'Desarrollo', tipo: 'finalizado', rolId: rolDev ? rolDev._id : null },
-      { nombre: 'QA', tipo: 'aprobacion', rolId: rolQA ? rolQA._id : null },
-    ],
-    equipo: [],
+    proyectoBaseId: proyectoBaseIdValidado,
+    columnasCheck,
+    equipo: equipoClonado,
   });
 
   return proyectoPublico(proyecto);

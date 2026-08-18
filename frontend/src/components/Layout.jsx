@@ -20,6 +20,7 @@ function Layout() {
     id: p.id,
     nombre: p.nombre,
     totalIntegrantes: p.equipo.length,
+    proyectoBaseNombre: p.proyectoBaseNombre,
   }));
 
   return (

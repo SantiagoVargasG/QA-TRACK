@@ -30,6 +30,18 @@ function TopBar({ proyectos, proyectoActualId, onCambiarProyecto, onGestionarPro
     onCambiarProyecto(valor || null);
   }
 
+  // Proyectos sueltos (sin proyectoBaseId) se listan igual que siempre, sin optgroup —
+  // retrocompatibilidad exacta cuando ningún proyecto usa el agrupador. Las sub-vistas de
+  // un mismo Proyecto Base se agrupan bajo un <optgroup> nativo con su nombre, sin
+  // necesitar un componente de selector nuevo.
+  const sueltos = proyectos.filter((p) => !p.proyectoBaseNombre);
+  const gruposPorBase = new Map();
+  proyectos.forEach((p) => {
+    if (!p.proyectoBaseNombre) return;
+    if (!gruposPorBase.has(p.proyectoBaseNombre)) gruposPorBase.set(p.proyectoBaseNombre, []);
+    gruposPorBase.get(p.proyectoBaseNombre).push(p);
+  });
+
   return (
     <header className="fixed inset-x-0 top-0 z-50 flex h-16 items-center justify-between border-b border-outline-variant bg-surface-container-lowest px-6 card-shadow">
       <div className="flex items-center gap-6">
@@ -42,10 +54,19 @@ function TopBar({ proyectos, proyectoActualId, onCambiarProyecto, onGestionarPro
             className="border-none bg-transparent py-0.5 pr-6 font-body text-label-md font-semibold text-on-surface-variant focus:outline-none focus:ring-0"
           >
             <option value="">Seleccionar proyecto…</option>
-            {proyectos.map((p) => (
+            {sueltos.map((p) => (
               <option key={p.id} value={p.id}>
                 {etiquetaProyecto(p)}
               </option>
+            ))}
+            {[...gruposPorBase.entries()].map(([nombreBase, subVistas]) => (
+              <optgroup key={nombreBase} label={nombreBase}>
+                {subVistas.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {etiquetaProyecto(p)}
+                  </option>
+                ))}
+              </optgroup>
             ))}
             <option value={OPCION_GESTIONAR}>Gestionar proyectos…</option>
           </select>

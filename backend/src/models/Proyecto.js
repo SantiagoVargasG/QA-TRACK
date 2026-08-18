@@ -22,6 +22,10 @@ const proyectoSchema = new Schema(
     tenantId: { type: Schema.Types.ObjectId, ref: 'Tenant', required: true },
     nombre: { type: String, required: true, trim: true },
     descripcion: { type: String, default: '', trim: true },
+    // Agrupador opcional (Iteración post-MVP): varios Proyecto pueden ser "sub-vistas" del
+    // mismo ProyectoBase (ej. roles distintos del mismo proyecto real: experto/admin/
+    // cliente). null = proyecto suelto, sin agrupar, comportamiento idéntico al de siempre.
+    proyectoBaseId: { type: Schema.Types.ObjectId, ref: 'ProyectoBase', default: null },
     columnasCheck: [columnaCheckSchema],
     equipo: [miembroEquipoSchema],
     activo: { type: Boolean, default: true },

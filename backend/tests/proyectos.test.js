@@ -42,6 +42,11 @@ describe('proyectos: CRUD, admin de tenant, membresía y aislamiento', () => {
     const colQA = resp.body.columnasCheck.find((c) => c.nombre === 'QA');
     assert.equal(colDev.rolId, String(base.roles.dev._id));
     assert.equal(colQA.rolId, String(base.roles.qa._id));
+
+    // Retrocompatibilidad (post-MVP: agrupador ProyectoBase): un proyecto creado sin
+    // proyectoBaseId se comporta exactamente igual que antes de que ese campo existiera.
+    assert.equal(resp.body.proyectoBaseId, null);
+    assert.equal(resp.body.proyectoBaseNombre, null);
   });
 
   it('un no-miembro (ni admin) recibe 404 al ver el proyecto; tras entrar al equipo, ve 200', async () => {
