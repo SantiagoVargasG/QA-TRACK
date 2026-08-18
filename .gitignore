@@ -1,1 +1,36 @@
+# Credenciales y variables de entorno
+*.env
+*.env.local
+*.env.*.local
 docs/atlas-credentials.env
+.env.*.backup
+
+# node_modules y dependencias
+node_modules/
+dist/
+build/
+
+# Archivos de sistema
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+
+# Testing
+.nyc_output
+coverage/
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Archivos temporales de desarrollo
+scratch-*.js
+temp/
+.tmp/

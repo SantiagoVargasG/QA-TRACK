@@ -40,17 +40,9 @@ cd backend
 npm run seed
 ```
 
-Crea un tenant demo (organización/slug: `demo`) con:
-
-| Usuario | Email | Password |
-|---|---|---|
-| Admin | `admin@demo.com` | `demo12345` |
-| Dev | `dev@demo.com` | `demo12345` |
-| QA | `qa@demo.com` | `demo12345` |
-
-... y un "Proyecto Demo" con 2 módulos, cada uno con 1 requerimiento, 1 historia de usuario y 1 criterio
-de aceptación de ejemplo. El script es idempotente: si el tenant `demo` ya existe, no hace nada (borralo
-manualmente de la base si querés datos frescos).
+Crea un tenant demo (organización/slug: `demo`) con usuarios de ejemplo y un "Proyecto Demo" 
+con 2 módulos, cada uno con 1 requerimiento, 1 historia de usuario y 1 criterio de aceptación de ejemplo.
+El script es idempotente: si el tenant `demo` ya existe, no hace nada.
 
 ### Frontend
 
