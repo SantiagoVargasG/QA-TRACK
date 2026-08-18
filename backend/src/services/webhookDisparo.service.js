@@ -11,8 +11,18 @@ const TITULOS_EVENTO = {
   prueba_reportada: 'Prueba reportada',
 };
 
-function valorLegible(valor) {
+function valorLegible(valor, clave) {
   if (Array.isArray(valor)) {
+    // Caso especial: modulos (array de {nombre, historias: [...]})
+    if (clave === 'modulos' && valor.length > 0 && valor[0].historias) {
+      return valor
+        .map((mod) => {
+          const hus = mod.historias.map((h) => `${h.codigo}: ${h.texto}`).join('; ');
+          return `${mod.nombre} — ${hus}`;
+        })
+        .join('\n');
+    }
+    // Array genérico de valores primitivos
     return valor
       .map((v) => (v && typeof v === 'object' ? Object.values(v).join(' — ') : String(v)))
       .join('; ');
@@ -62,7 +72,7 @@ function formatearGoogleChat(contexto) {
 
   const widgets = Object.entries(contexto)
     .filter(([clave, valor]) => clave !== 'evento' && valor !== undefined && valor !== '')
-    .map(([clave, valor]) => ({ decoratedText: { topLabel: clave, text: valorLegible(valor) } }));
+    .map(([clave, valor]) => ({ decoratedText: { topLabel: clave, text: valorLegible(valor, clave) } }));
 
   return {
     cardsV2: [
