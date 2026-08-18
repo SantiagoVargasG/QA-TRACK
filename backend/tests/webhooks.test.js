@@ -581,13 +581,13 @@ describe('webhooks: CRUD, disparo por evento, reintentos y reportar-prueba', () 
       assert.equal(resp.body.resultado, 'con_errores');
       assert.equal(resp.body.modulos.length, 1);
       assert.equal(resp.body.modulos[0].historias.length, 2);
-      assert.equal(resp.body.criterios_rechazados.length, 1);
-      assert.equal(resp.body.criterios_rechazados[0].comentario, 'Segundo comentario (más reciente)');
+      assert.equal(resp.body.modulos[0].historias[0].criterios.length, 1);
+      assert.equal(resp.body.modulos[0].historias[0].criterios[0].estado, 'RECHAZADO');
       assert.equal(resp.body.webhooksNotificados, 1);
 
       await esperarHasta(() => mock.requests.length >= 1);
       assert.equal(mock.requests[0].body.evento, 'prueba_reportada');
-      assert.deepEqual(mock.requests[0].body.criterios_rechazados, resp.body.criterios_rechazados);
+      assert.equal(mock.requests[0].body.modulos[0].historias[0].criterios[0].estado, 'RECHAZADO');
     });
 
     it('sin token -> 401; id de proyecto malformado -> 400', async () => {
@@ -671,14 +671,16 @@ describe('webhooks: CRUD, disparo por evento, reintentos y reportar-prueba', () 
       assert.equal(resp.body.modulos.length, 2);
       assert.equal(resp.body.modulos[0].nombre, 'Catálogo');
       assert.equal(resp.body.modulos[1].nombre, 'Segundo módulo');
-      assert.equal(resp.body.criterios_rechazados.length, 2);
-      assert.ok(resp.body.criterios_rechazados[0].hu.match(/^HU-\d+$/), 'primer criterio debe tener código HU-N');
-      assert.equal(resp.body.criterios_rechazados[0].comentario, 'Problema en M1');
-      assert.equal(resp.body.criterios_rechazados[1].comentario, 'Problema en M2');
+      assert.ok(resp.body.modulos[0].historias[0].codigo.match(/^HU-\d+$/), 'primer módulo debe tener HU con código HU-N');
+      assert.equal(resp.body.modulos[0].historias[0].criterios.length, 1);
+      assert.equal(resp.body.modulos[0].historias[0].criterios[0].estado, 'RECHAZADO');
+      assert.equal(resp.body.modulos[1].historias[0].criterios.length, 1);
+      assert.equal(resp.body.modulos[1].historias[0].criterios[0].estado, 'RECHAZADO');
 
       await esperarHasta(() => mock.requests.length >= 1);
       assert.equal(mock.requests[0].body.modulos.length, 2);
-      assert.equal(mock.requests[0].body.criterios_rechazados.length, 2);
+      assert.equal(mock.requests[0].body.modulos[0].historias[0].criterios[0].estado, 'RECHAZADO');
+      assert.equal(mock.requests[0].body.modulos[1].historias[0].criterios[0].estado, 'RECHAZADO');
     });
   });
 });

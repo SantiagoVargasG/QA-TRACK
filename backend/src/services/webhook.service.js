@@ -284,7 +284,6 @@ async function reportarPrueba(tenantId, proyectoId, auth, { modulos, resultado, 
 
   // Validar y compilar cada módulo + sus historias
   const modulosCompilados = [];
-  const criteriosRechazadosPorModulo = {};
 
   // eslint-disable-next-line no-restricted-syntax
   for (const modItem of modulos) {
@@ -325,8 +324,8 @@ async function reportarPrueba(tenantId, proyectoId, auth, { modulos, resultado, 
       throw new ApiError(400, `las historias seleccionadas no pertenecen todas al módulo ${modulo.nombre}`);
     }
 
-    // Compilar criterios rechazados para este módulo
-    const criteriosDelModulo = [];
+    // Compilar historias con TODOS sus criterios (no solo rechazados)
+    const historiasConCriterios = [];
     // eslint-disable-next-line no-restricted-syntax
     for (const historia of historias) {
       // eslint-disable-next-line no-await-in-loop
@@ -334,30 +333,23 @@ async function reportarPrueba(tenantId, proyectoId, auth, { modulos, resultado, 
         tenantId,
         historiaId: historia._id,
         activo: true,
-        estado: 'RECHAZADO',
+      }).sort({ orden: 1 });
+
+      historiasConCriterios.push({
+        codigo: historia.codigo,
+        texto: historia.texto,
+        criterios: criterios.map((c) => ({
+          texto: c.texto,
+          estado: c.estado,
+        })),
       });
-      // eslint-disable-next-line no-restricted-syntax
-      for (const criterio of criterios) {
-        // eslint-disable-next-line no-await-in-loop
-        const reporte = await Reporte.findOne({ tenantId, criterioId: criterio._id }).sort({ createdAt: -1 });
-        const ultimoRechazo = reporte ? [...reporte.entradas].reverse().find((e) => e.tipo === 'rechazo') : null;
-        criteriosDelModulo.push({
-          hu: historia.codigo,
-          criterio: criterio.texto,
-          comentario: ultimoRechazo?.comentario || '',
-        });
-      }
     }
 
     modulosCompilados.push({
       nombre: modulo.nombre,
-      historias: historias.map((h) => `${h.codigo}: ${h.texto}`),
+      historias: historiasConCriterios,
     });
-    criteriosRechazadosPorModulo[modulo._id.toString()] = criteriosDelModulo;
   }
-
-  // Aplanar todos los criterios rechazados en un array único
-  const criteriosRechazados = Object.values(criteriosRechazadosPorModulo).flat();
 
   const usuario = await Usuario.findOne({ _id: auth.usuarioId, tenantId }).select('nombre');
   const contexto = {
@@ -365,7 +357,6 @@ async function reportarPrueba(tenantId, proyectoId, auth, { modulos, resultado, 
     proyecto: proyecto.nombre,
     modulos: modulosCompilados,
     resultado,
-    criterios_rechazados: criteriosRechazados,
     comentario: comentario || undefined,
     autor: usuario?.nombre || '',
     fecha: new Date().toISOString(),
