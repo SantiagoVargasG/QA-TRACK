@@ -503,6 +503,7 @@ describe('webhooks: CRUD, disparo por evento, reintentos y reportar-prueba', () 
 
   describe('reportar-prueba', () => {
     it('requiere capacidad aprobar_rechazar (403 para Dev, 200 para QA)', async () => {
+      await crearWebhookDirecto({ eventos: ['prueba_reportada'] });
       const { historiaId } = await crearHistoriaConCriterio('HU para reportar');
 
       const sinCapacidad = await request(app)
@@ -519,6 +520,7 @@ describe('webhooks: CRUD, disparo por evento, reintentos y reportar-prueba', () 
     });
 
     it('valida moduloId (en cada elemento de modulos), historiaIds y resultado', async () => {
+      await crearWebhookDirecto({ eventos: ['prueba_reportada'] });
       const { historiaId } = await crearHistoriaConCriterio('HU validación');
 
       const moduloInvalido = await request(app)
@@ -589,6 +591,8 @@ describe('webhooks: CRUD, disparo por evento, reintentos y reportar-prueba', () 
     });
 
     it('sin token -> 401; id de proyecto malformado -> 400', async () => {
+      await crearWebhookDirecto({ eventos: ['prueba_reportada'] });
+
       const sinToken = await request(app)
         .post(`/api/proyectos/${proyectoId}/reportar-prueba`)
         .send({ modulos: [{ moduloId, historiaIds: ['507f1f77bcf86cd799439011'] }], resultado: 'exitosa' });
@@ -599,6 +603,20 @@ describe('webhooks: CRUD, disparo por evento, reintentos y reportar-prueba', () 
         .set('Authorization', `Bearer ${base.tokens.qa}`)
         .send({ modulos: [{ moduloId, historiaIds: ['507f1f77bcf86cd799439011'] }], resultado: 'exitosa' });
       assert.equal(idMalformado.status, 400);
+    });
+
+    it('sin webhooks configurados -> 400 con mensaje claro', async () => {
+      const { historiaId } = await crearHistoriaConCriterio('HU sin webhooks');
+
+      const resp = await request(app)
+        .post(`/api/proyectos/${proyectoId}/reportar-prueba`)
+        .set('Authorization', `Bearer ${base.tokens.qa}`)
+        .send({ modulos: [{ moduloId, historiaIds: [historiaId] }], resultado: 'exitosa' });
+      assert.equal(resp.status, 400);
+      assert.ok(
+        resp.body.error.includes('webhooks'),
+        'mensaje de error debe mencionar webhooks',
+      );
     });
 
     it('agregar múltiples módulos en un solo reporte (nuevo agregador)', async () => {

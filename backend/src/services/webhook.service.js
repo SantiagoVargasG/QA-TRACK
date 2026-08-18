@@ -377,6 +377,11 @@ async function reportarPrueba(tenantId, proyectoId, auth, { modulos, resultado, 
     activo: true,
     eventos: 'prueba_reportada',
   });
+
+  if (webhooks.length === 0) {
+    throw new ApiError(400, 'No hay webhooks configurados para recibir reportes de prueba. Configura al menos uno en la sección "Webhooks" del proyecto.');
+  }
+
   // Sin await: reportar-prueba responde de inmediato con cuántos webhooks fueron
   // encolados, sin esperar los reintentos (hasta ~30s por webhook) — la entrega real se
   // resuelve y se loguea en segundo plano, igual que notificarEventoCriterio.
